@@ -1,0 +1,36 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["node", "dist/api/index.js"]
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATA_DIR=/data
+      - RETENTION_HOURS=${RETENTION_HOURS:-168}
+      - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-200}
+      - MAX_CLIP_DURATION_S=${MAX_CLIP_DURATION_S:-20}
+      - DEFAULT_FPS=${DEFAULT_FPS:-10}
+      - DEFAULT_WIDTH=${DEFAULT_WIDTH:-480}
+    volumes:
+      - ./data:/data
+    ports:
+      - "3000:3000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["node", "dist/worker/index.js"]
+    environment:
+      - NODE_ENV=production
+      - DATA_DIR=/data
+      - RETENTION_HOURS=${RETENTION_HOURS:-168}
+      - MAX_CLIP_DURATION_S=${MAX_CLIP_DURATION_S:-20}
+      - DEFAULT_FPS=${DEFAULT_FPS:-10}
+      - DEFAULT_WIDTH=${DEFAULT_WIDTH:-480}
+    volumes:
+      - ./data:/data
+    depends_on:
+      - api

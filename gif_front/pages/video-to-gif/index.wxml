@@ -1,0 +1,563 @@
+<view class="page safe-area">
+  <view class="panel glass-strong">
+    <view class="preview">
+      <block wx:if="{{videoPath}}">
+        <!-- 单视频组件方案 -->
+        <view class="video-container" id="mainVideoContainer">
+          <video
+            id="videoPlayer"
+            class="video"
+            src="{{videoPath}}"
+            controls="{{true}}"
+            autoplay="{{false}}"
+            show-center-play-btn="{{true}}"
+            show-fullscreen-btn="{{true}}"
+            show-play-btn="{{true}}"
+            enable-progress-gesture="{{true}}"
+            object-fit="contain"
+            bindtimeupdate="onTimeUpdate"
+            binderror="onVideoError"
+            bindloadedmetadata="onVideoLoaded"
+          />
+          <!-- 文字预览（非编辑模式） -->
+          <view 
+            class="video-text-preview"
+            wx:if="{{textPreviewConfig && !showTextPanel}}"
+            style="left: {{textPreviewConfig.x}}%; top: {{textPreviewConfig.y}}%; color: {{textPreviewConfig.color}}; opacity: {{(100 - textPreviewConfig.textOpacity) / 100}}; font-size: {{textPreviewConfig.fontSize}}px; -webkit-text-stroke: {{textPreviewConfig.strokeColor ? (textPreviewConfig.strokeWidth / 50) + 'px ' + textPreviewConfig.strokeColor : 'none'}}; text-shadow: {{textPreviewConfig._shadowStyle || 'none'}}; {{textPreviewConfig._bgStyle || ''}}"
+          >{{textPreviewConfig.content}}</view>
+          <!-- 裁剪预览框（非编辑模式，且已设置裁剪） -->
+          <view 
+            class="crop-preview-overlay"
+            wx:if="{{!showCropPanel && cropPreviewConfig}}"
+          >
+            <!-- 遮罩层：四个区域（上下左右）显示非裁剪区域 -->
+            <!-- 上遮罩 -->
+            <view class="crop-preview-mask crop-preview-mask-top" style="height: {{cropPreviewConfig.y}}%;"></view>
+            <!-- 下遮罩 -->
+            <view class="crop-preview-mask crop-preview-mask-bottom" style="top: {{cropPreviewConfig.y + cropPreviewConfig.height}}%; height: {{100 - cropPreviewConfig.y - cropPreviewConfig.height}}%;"></view>
+            <!-- 左遮罩 -->
+            <view class="crop-preview-mask crop-preview-mask-left" style="top: {{cropPreviewConfig.y}}%; left: 0; width: {{cropPreviewConfig.x}}%; height: {{cropPreviewConfig.height}}%;"></view>
+            <!-- 右遮罩 -->
+            <view class="crop-preview-mask crop-preview-mask-right" style="top: {{cropPreviewConfig.y}}%; left: {{cropPreviewConfig.x + cropPreviewConfig.width}}%; width: {{100 - cropPreviewConfig.x - cropPreviewConfig.width}}%; height: {{cropPreviewConfig.height}}%;"></view>
+            <!-- 裁剪框 -->
+            <view 
+              class="crop-preview-box"
+              style="left: {{cropPreviewConfig.x}}%; top: {{cropPreviewConfig.y}}%; width: {{cropPreviewConfig.width}}%; height: {{cropPreviewConfig.height}}%;"
+            >
+              <!-- 裁剪比例标签 -->
+              <view class="crop-preview-label" wx:if="{{cropPreviewConfig.aspectRatio !== 'free'}}">
+                {{cropPreviewConfig.aspectRatio}}
+              </view>
+            </view>
+          </view>
+        </view>
+      </block>
+      <!-- 没有视频时显示占位符，点击选择视频 -->
+      <view wx:else class="placeholder" bindtap="onChooseVideo">
+        <view class="placeholder-title">选择视频</view>
+        <view class="placeholder-desc">支持拍摄/相册，截取最长10秒</view>
+      </view>
+    </view>
+
+    <view class="timeline">
+      <view class="control-bar">
+        <text class="time-text">{{durationText}}</text>
+        <view class="control-center">
+          <!-- 播放全篇按钮 -->
+          <view class="play-btn play-btn-full" bindtap="onToggleFullPlay">
+            <text class="play-icon">▶</text>
+          </view>
+          <!-- 播放片段按钮 -->
+          <view class="play-btn play-btn-segment {{segmentPlaying ? 'play-btn-active' : ''}}" bindtap="onToggleSegmentPlay">
+            <text class="play-icon-small">{{segmentPlaying ? '⏸' : '▶'}}</text>
+            <text class="play-label">片段</text>
+          </view>
+        </view>
+        <view class="control-right">
+          <view class="tool-btn" bindtap="onClickTextTool">
+            <text class="tool-text">T</text>
+          </view>
+          <view class="tool-btn" bindtap="onClickCropTool">
+            <text class="tool-text">✂</text>
+          </view>
+          <view class="tool-btn" bindtap="onChooseVideo">
+            <text class="tool-text">换</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="ruler" id="ruler">
+        <view class="ruler-track {{timelineDragging || dragActiveType ? 'ruler-track-dragging' : ''}}">
+          <!-- 表冠质感：上下边缘竖纹（提示可滚动） -->
+          <view class="crown-edge crown-top" aria-hidden="true"></view>
+          <view class="crown-edge crown-bottom" aria-hidden="true"></view>
+
+          <!-- 内容区域（有内边距） -->
+          <view class="ruler-inner" id="rulerInner">
+            <!-- 可拖动刻度区域（快速拖动时间轴窗口） -->
+            <view
+              class="ruler-scrub"
+              wx:if="{{videoPath}}"
+              bindtouchstart="onScrubStart"
+              bindtouchmove="onScrubMove"
+              bindtouchend="onScrubEnd"
+              bindtouchcancel="onScrubEnd"
+            >
+            </view>
+
+            <block wx:for="{{ticks}}" wx:key="idx">
+              <view
+                class="tick tick-{{item.kind}}"
+                style="left: {{item.leftPct}}%;"
+              >
+                <text class="tick-label" wx:if="{{item.label}}">{{item.label}}</text>
+              </view>
+            </block>
+
+            <view
+              class="range-fill"
+              style="left: {{rangeLeftPct}}%; width: {{rangeWidthPct}}%;"
+              data-type="range"
+              bindtouchstart="onDragStart"
+              bindtouchmove="onDragMove"
+              bindtouchend="onDragEnd"
+              bindtouchcancel="onDragEnd"
+            ></view>
+
+            <!-- 双指针箭头：指向选区起止（拖动时用于"像播放器进度条一样"的预览反馈） -->
+            <view class="range-pointer range-pointer-left" style="left: {{handleLeftPct}}%;"></view>
+            <view class="range-pointer range-pointer-right" style="left: {{handleRightPct}}%;"></view>
+
+            <view
+              class="handle-v2"
+              style="left: {{handleLeftPct}}%;"
+              data-type="left"
+              bindtouchstart="onDragStart"
+              bindtouchmove="onDragMove"
+              bindtouchend="onDragEnd"
+              bindtouchcancel="onDragEnd"
+            ></view>
+
+            <view
+              class="handle-v2"
+              style="left: {{handleRightPct}}%;"
+              data-type="right"
+              bindtouchstart="onDragStart"
+              bindtouchmove="onDragMove"
+              bindtouchend="onDragEnd"
+              bindtouchcancel="onDragEnd"
+            ></view>
+          </view>
+        </view>
+
+        <view class="range-labels-v2">
+          <text class="range-label">{{startText}}</text>
+          <text class="range-label">{{endText}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="options glass">
+    <view class="tip" wx:if="{{supportTip}}">
+      <text class="tip-title">能力说明</text>
+      <text class="tip-content">{{supportTip}}</text>
+    </view>
+    <view class="divider" wx:if="{{supportTip}}"></view>
+
+    <picker mode="selector" range="{{resolutionLabels}}" value="{{resolutionIndex}}" bindchange="onResolutionPick">
+      <view class="opt-row">
+        <text class="opt-label">分辨率</text>
+        <text class="opt-value">{{resolutionLabels[resolutionIndex]}}</text>
+      </view>
+    </picker>
+    <view class="divider"></view>
+    <picker mode="selector" range="{{fpsLabels}}" value="{{fpsIndex}}" bindchange="onFpsPick">
+      <view class="opt-row">
+        <text class="opt-label">帧率</text>
+        <text class="opt-value">{{fpsLabels[fpsIndex]}}</text>
+      </view>
+    </picker>
+  </view>
+
+  <view class="result glass" wx:if="{{outPath}}">
+    <view class="result-title">预览</view>
+    <image class="result-img" src="{{outPath}}" mode="widthFix" />
+    <view class="result-actions">
+      <button class="btn btn-primary" bindtap="onSave">保存到相册</button>
+    </view>
+  </view>
+
+  <view class="bottom safe-area">
+    <button class="btn btn-primary" bindtap="onConvert" disabled="{{processing}}">转换</button>
+    <view class="progress" wx:if="{{processing}}">{{progressText}}</view>
+  </view>
+
+  <!-- 文字编辑面板 - 全屏模式 -->
+  <view class="text-fullscreen {{showTextPanel ? 'text-fullscreen-show' : ''}}" wx:if="{{showTextPanel}}">
+    <!-- 顶部栏 -->
+    <view class="text-header">
+      <view class="text-header-btn" bindtap="onTextPanelClose">取消</view>
+      <text class="text-header-title">添加文字</text>
+      <view class="text-header-btn text-header-done" bindtap="onTextDone">完成</view>
+    </view>
+
+    <!-- 大视频预览区域 -->
+    <view class="text-video-area" id="textVideoArea">
+      <video 
+        id="textVideoPlayer"
+        class="text-video-bg" 
+        src="{{videoPath}}" 
+        controls="{{false}}"
+        show-center-play-btn="{{false}}"
+        show-fullscreen-btn="{{false}}"
+        object-fit="contain"
+        autoplay="{{false}}"
+        muted="{{true}}"
+        initial-time="{{startS}}"
+      />
+      <!-- 可拖拽文字 -->
+      <view 
+        class="text-drag-box {{textDragging ? 'text-dragging' : ''}}"
+        wx:if="{{textConfig.content}}"
+        style="left: {{textConfig.x}}%; top: {{textConfig.y}}%;"
+        catchtouchstart="onTextDragStart"
+        catchtouchmove="onTextDragMove"
+        catchtouchend="onTextDragEnd"
+      >
+        <view class="text-ctrl text-ctrl-delete" catchtap="onTextDelete">×</view>
+        <view class="text-border"></view>
+        <view 
+          class="text-content"
+          style="color: {{textConfig.color}}; opacity: {{(100 - textConfig.textOpacity) / 100}}; font-size: {{textConfig.fontSizeNum}}px; -webkit-text-stroke: {{textConfig.strokeColor ? (textConfig.strokeWidth / 30) + 'px ' + textConfig.strokeColor : 'none'}}; text-shadow: {{textConfig._shadowStyleFull || 'none'}}; {{textConfig._bgStyle || ''}}"
+        >{{textConfig.content}}</view>
+      </view>
+    </view>
+
+    <!-- 底部编辑区 -->
+    <view class="text-edit-area">
+      <!-- 输入框区域 -->
+      <view class="text-input-row">
+        <input 
+          class="text-input" 
+          placeholder="请输入内容" 
+          value="{{textConfig.content}}"
+          bindinput="onTextInput"
+          bindconfirm="onTextConfirm"
+          focus="{{textInputFocus}}"
+        />
+      </view>
+
+    <!-- 标签页切换 -->
+    <view class="text-tabs">
+      <view 
+        class="text-tab {{textActiveTab === 'keyboard' ? 'text-tab-active' : ''}}"
+        bindtap="onTextTabChange"
+        data-tab="keyboard"
+      >键盘</view>
+      <view 
+        class="text-tab {{textActiveTab === 'text' ? 'text-tab-active' : ''}}"
+        bindtap="onTextTabChange"
+        data-tab="text"
+      >文本</view>
+      <view 
+        class="text-tab {{textActiveTab === 'stroke' ? 'text-tab-active' : ''}}"
+        bindtap="onTextTabChange"
+        data-tab="stroke"
+      >描边</view>
+      <view 
+        class="text-tab {{textActiveTab === 'shadow' ? 'text-tab-active' : ''}}"
+        bindtap="onTextTabChange"
+        data-tab="shadow"
+      >阴影</view>
+      <view 
+        class="text-tab {{textActiveTab === 'background' ? 'text-tab-active' : ''}}"
+        bindtap="onTextTabChange"
+        data-tab="background"
+      >背景</view>
+    </view>
+
+    <!-- 标签页内容 -->
+    <view class="text-tab-content">
+      <!-- 键盘标签页 - 拖拽说明和字号 -->
+      <view class="text-tab-pane" wx:if="{{textActiveTab === 'keyboard'}}">
+        <view class="text-drag-tip">
+          <text class="text-drag-tip-icon">☝</text>
+          <text class="text-drag-tip-text">拖动上方文字调整位置</text>
+        </view>
+        <view class="slider-row">
+          <text class="slider-label">字号</text>
+          <slider 
+            class="slider" 
+            min="12" 
+            max="72" 
+            value="{{textConfig.fontSizeNum}}"
+            bindchange="onFontSizeSliderChange"
+            activeColor="#20c05c"
+          />
+          <text class="slider-value">{{textConfig.fontSizeNum}}</text>
+        </view>
+      </view>
+
+      <!-- 文本颜色标签页 -->
+      <view class="text-tab-pane" wx:if="{{textActiveTab === 'text'}}">
+        <view class="color-picker">
+          <view 
+            wx:for="{{colorOptions}}" 
+            wx:key="*this"
+            class="color-item {{textConfig.color === item ? 'color-item-active' : ''}}"
+            style="background: {{item}};"
+            bindtap="onTextColorChange"
+            data-color="{{item}}"
+          ></view>
+        </view>
+        <view class="slider-row">
+          <text class="slider-label">透明度</text>
+          <slider 
+            class="slider" 
+            min="0" 
+            max="100" 
+            value="{{textConfig.textOpacity}}"
+            bindchange="onTextOpacityChange"
+            activeColor="#20c05c"
+          />
+          <text class="slider-value">{{textConfig.textOpacity}}</text>
+        </view>
+      </view>
+
+      <!-- 描边标签页 -->
+      <view class="text-tab-pane" wx:if="{{textActiveTab === 'stroke'}}">
+        <view class="color-picker">
+          <view 
+            class="color-item color-item-none {{!textConfig.strokeColor ? 'color-item-active' : ''}}"
+            bindtap="onStrokeColorChange"
+            data-color=""
+          >⊘</view>
+          <view 
+            wx:for="{{colorOptions}}" 
+            wx:key="*this"
+            class="color-item {{textConfig.strokeColor === item ? 'color-item-active' : ''}}"
+            style="background: {{item}};"
+            bindtap="onStrokeColorChange"
+            data-color="{{item}}"
+          ></view>
+        </view>
+        <view class="slider-row">
+          <text class="slider-label">粗细</text>
+          <slider 
+            class="slider" 
+            min="1" 
+            max="100" 
+            value="{{textConfig.strokeWidth}}"
+            bindchange="onStrokeWidthChange"
+            activeColor="#20c05c"
+          />
+          <text class="slider-value">{{textConfig.strokeWidth}}</text>
+        </view>
+        <view class="slider-row">
+          <text class="slider-label">透明度</text>
+          <slider 
+            class="slider" 
+            min="0" 
+            max="100" 
+            value="{{textConfig.strokeOpacity}}"
+            bindchange="onStrokeOpacityChange"
+            activeColor="#20c05c"
+          />
+          <text class="slider-value">{{textConfig.strokeOpacity}}</text>
+        </view>
+      </view>
+
+      <!-- 阴影标签页 -->
+      <view class="text-tab-pane" wx:if="{{textActiveTab === 'shadow'}}">
+        <view class="color-picker">
+          <view 
+            class="color-item color-item-none {{!textConfig.shadowColor ? 'color-item-active' : ''}}"
+            bindtap="onShadowColorChange"
+            data-color=""
+          >⊘</view>
+          <view 
+            wx:for="{{colorOptions}}" 
+            wx:key="*this"
+            class="color-item {{textConfig.shadowColor === item ? 'color-item-active' : ''}}"
+            style="background: {{item}};"
+            bindtap="onShadowColorChange"
+            data-color="{{item}}"
+          ></view>
+        </view>
+        <view class="slider-row">
+          <text class="slider-label">模糊</text>
+          <slider 
+            class="slider" 
+            min="0" 
+            max="100" 
+            value="{{textConfig.shadowBlur}}"
+            bindchange="onShadowBlurChange"
+            activeColor="#20c05c"
+          />
+          <text class="slider-value">{{textConfig.shadowBlur}}</text>
+        </view>
+        <view class="slider-row">
+          <text class="slider-label">距离</text>
+          <slider 
+            class="slider" 
+            min="0" 
+            max="100" 
+            value="{{textConfig.shadowDistance}}"
+            bindchange="onShadowDistanceChange"
+            activeColor="#20c05c"
+          />
+          <text class="slider-value">{{textConfig.shadowDistance}}</text>
+        </view>
+        <view class="slider-row">
+          <text class="slider-label">角度</text>
+          <slider 
+            class="slider" 
+            min="0" 
+            max="360" 
+            value="{{textConfig.shadowAngle}}"
+            bindchange="onShadowAngleChange"
+            activeColor="#20c05c"
+          />
+          <text class="slider-value">{{textConfig.shadowAngle}}</text>
+        </view>
+        <view class="slider-row">
+          <text class="slider-label">透明度</text>
+          <slider 
+            class="slider" 
+            min="0" 
+            max="100" 
+            value="{{textConfig.shadowOpacity}}"
+            bindchange="onShadowOpacityChange"
+            activeColor="#20c05c"
+          />
+          <text class="slider-value">{{textConfig.shadowOpacity}}</text>
+        </view>
+      </view>
+
+      <!-- 背景标签页 -->
+      <view class="text-tab-pane" wx:if="{{textActiveTab === 'background'}}">
+        <view class="color-picker">
+          <view 
+            class="color-item color-item-none {{!textConfig.bgColor ? 'color-item-active' : ''}}"
+            bindtap="onBgColorChange"
+            data-color=""
+          >⊘</view>
+          <view 
+            wx:for="{{colorOptions}}" 
+            wx:key="*this"
+            class="color-item {{textConfig.bgColor === item ? 'color-item-active' : ''}}"
+            style="background: {{item}};"
+            bindtap="onBgColorChange"
+            data-color="{{item}}"
+          ></view>
+        </view>
+        <view class="slider-row">
+          <text class="slider-label">透明度</text>
+          <slider 
+            class="slider" 
+            min="0" 
+            max="100" 
+            value="{{textConfig.bgOpacity}}"
+            bindchange="onBgOpacityChange"
+            activeColor="#20c05c"
+          />
+          <text class="slider-value">{{textConfig.bgOpacity}}</text>
+        </view>
+      </view>
+    </view>
+    </view>
+  </view>
+
+  <!-- 裁剪面板 - 全屏模式 -->
+  <view class="crop-fullscreen {{showCropPanel ? 'crop-fullscreen-show' : ''}}" wx:if="{{showCropPanel}}">
+    <!-- 顶部栏 -->
+    <view class="crop-header">
+      <view class="crop-header-btn" bindtap="onCropPanelClose">取消</view>
+      <text class="crop-header-title">裁剪</text>
+      <view class="crop-header-btn crop-header-done" bindtap="onCropDone">确认</view>
+    </view>
+
+    <!-- 视频预览区域 -->
+    <view class="crop-video-area" id="cropVideoArea">
+      <view class="crop-video-wrapper" id="cropVideoWrapper">
+        <video 
+          id="cropVideoPlayer"
+          class="crop-video-bg" 
+          src="{{videoPath}}" 
+          controls="{{false}}"
+          show-center-play-btn="{{false}}"
+          show-fullscreen-btn="{{false}}"
+          object-fit="contain"
+          autoplay="{{false}}"
+          muted="{{true}}"
+          initial-time="{{startS}}"
+          bindloadedmetadata="onCropVideoLoaded"
+        />
+        <!-- 裁剪框 -->
+        <view 
+          class="crop-box {{cropDragging ? 'crop-dragging' : ''}}"
+          style="left: {{cropConfig.x}}%; top: {{cropConfig.y}}%; width: {{cropConfig.width}}%; height: {{cropConfig.height}}%;"
+        >
+        <!-- 网格线 -->
+        <view class="crop-grid">
+          <view class="crop-grid-line crop-grid-v1"></view>
+          <view class="crop-grid-line crop-grid-v2"></view>
+          <view class="crop-grid-line crop-grid-h1"></view>
+          <view class="crop-grid-line crop-grid-h2"></view>
+        </view>
+        <!-- 拖动区域 -->
+        <view 
+          class="crop-drag-area"
+          data-type="move"
+          catchtouchstart="onCropDragStart"
+          catchtouchmove="onCropDragMove"
+          catchtouchend="onCropDragEnd"
+          catchtouchcancel="onCropDragEnd"
+        ></view>
+        <!-- 调整大小的控制点 -->
+        <view class="crop-handle crop-handle-tl" data-type="resize-tl" catchtouchstart="onCropDragStart" catchtouchmove="onCropDragMove" catchtouchend="onCropDragEnd" catchtouchcancel="onCropDragEnd"></view>
+        <view class="crop-handle crop-handle-tr" data-type="resize-tr" catchtouchstart="onCropDragStart" catchtouchmove="onCropDragMove" catchtouchend="onCropDragEnd" catchtouchcancel="onCropDragEnd"></view>
+        <view class="crop-handle crop-handle-bl" data-type="resize-bl" catchtouchstart="onCropDragStart" catchtouchmove="onCropDragMove" catchtouchend="onCropDragEnd" catchtouchcancel="onCropDragEnd"></view>
+        <view class="crop-handle crop-handle-br" data-type="resize-br" catchtouchstart="onCropDragStart" catchtouchmove="onCropDragMove" catchtouchend="onCropDragEnd" catchtouchcancel="onCropDragEnd"></view>
+        <view class="crop-handle crop-handle-t" data-type="resize-t" catchtouchstart="onCropDragStart" catchtouchmove="onCropDragMove" catchtouchend="onCropDragEnd" catchtouchcancel="onCropDragEnd"></view>
+        <view class="crop-handle crop-handle-b" data-type="resize-b" catchtouchstart="onCropDragStart" catchtouchmove="onCropDragMove" catchtouchend="onCropDragEnd" catchtouchcancel="onCropDragEnd"></view>
+        <view class="crop-handle crop-handle-l" data-type="resize-l" catchtouchstart="onCropDragStart" catchtouchmove="onCropDragMove" catchtouchend="onCropDragEnd" catchtouchcancel="onCropDragEnd"></view>
+        <view class="crop-handle crop-handle-r" data-type="resize-r" catchtouchstart="onCropDragStart" catchtouchmove="onCropDragMove" catchtouchend="onCropDragEnd" catchtouchcancel="onCropDragEnd"></view>
+      </view>
+      <!-- 遮罩层 - 未选中区域暗，选中区域亮 -->
+      <view class="crop-overlay">
+        <!-- 顶部遮罩 -->
+        <view class="crop-overlay-top" style="height: {{cropConfig.y}}%;"></view>
+        <!-- 中间区域：包含左右遮罩和中间的选中区域（无遮罩） -->
+        <view class="crop-overlay-middle" style="height: {{cropConfig.height}}%;">
+          <view class="crop-overlay-left" style="width: {{cropConfig.x}}%;"></view>
+          <!-- 中间选中区域：无遮罩，保持透明 -->
+          <view class="crop-overlay-center" style="width: {{cropConfig.width}}%;"></view>
+          <view class="crop-overlay-right" style="width: {{100 - cropConfig.x - cropConfig.width}}%;"></view>
+        </view>
+        <!-- 底部遮罩 -->
+        <view class="crop-overlay-bottom" style="height: {{100 - cropConfig.y - cropConfig.height}}%;"></view>
+      </view>
+      </view>
+    </view>
+
+    <!-- 底部裁剪比例选择 -->
+    <view class="crop-footer">
+      <view class="crop-ratio-label">裁剪比例</view>
+      <view class="crop-ratio-list">
+        <view 
+          class="crop-ratio-item {{cropConfig.aspectRatio === item.value ? 'crop-ratio-active' : ''}}"
+          wx:for="{{cropAspectRatios}}"
+          wx:key="value"
+          data-ratio="{{item.value}}"
+          bindtap="onCropAspectRatioChange"
+        >
+          {{item.label}}
+        </view>
+      </view>
+    </view>
+  </view>
+</view>
+
+

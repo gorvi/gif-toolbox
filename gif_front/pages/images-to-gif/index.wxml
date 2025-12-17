@@ -1,0 +1,85 @@
+<view class="page safe-area">
+  <view class="header">
+    <view class="title">图片转GIF</view>
+    <view class="subtitle">端侧合成 · 失败直接提示</view>
+  </view>
+
+  <view class="panel glass-strong">
+    <view class="panel-top">
+      <view class="count">已选 {{images.length}} 张</view>
+      <view class="actions">
+        <view class="action glass" bindtap="onChooseImages">选择</view>
+        <view class="action glass" bindtap="onClearImages" wx:if="{{images.length}}">清空</view>
+      </view>
+    </view>
+
+    <view class="grid" wx:if="{{images.length}}">
+      <block wx:for="{{images}}" wx:key="path">
+        <view class="img-item" bindtap="onRemoveImage" data-index="{{index}}">
+          <image class="img" src="{{item.path}}" mode="aspectFill" />
+          <view class="del">×</view>
+        </view>
+      </block>
+    </view>
+
+    <view class="empty" wx:else>
+      <view class="empty-title">还没有图片</view>
+      <view class="empty-desc">建议 5~20 张，越多耗时越长</view>
+    </view>
+  </view>
+
+  <view class="options glass">
+    <view class="opt-row">
+      <text class="opt-label">帧时长</text>
+      <text class="opt-value">{{frameDelayMs}} ms</text>
+    </view>
+    <slider min="50" max="500" step="10" value="{{frameDelayMs}}" bindchange="onDelayChange" activeColor="#20c05c" />
+
+    <view class="divider"></view>
+
+    <picker mode="selector" range="{{maxSideLabels}}" value="{{maxSideIndex}}" bindchange="onMaxSidePick">
+      <view class="opt-row">
+        <text class="opt-label">最长边</text>
+        <text class="opt-value">{{maxSideLabels[maxSideIndex]}}</text>
+      </view>
+    </picker>
+
+    <view class="divider"></view>
+
+    <view class="opt-row">
+      <text class="opt-label">画质</text>
+      <view class="quality">
+        <text class="quality-text">{{qualityMode === 'HIGH' ? '高画质' : '标准'}}</text>
+        <switch checked="{{qualityMode === 'HIGH'}}" bindchange="onQualityChange" color="#20c05c" />
+      </view>
+    </view>
+    <view class="opt-hint">默认高画质（更好看）；标准更快</view>
+
+    <view class="divider"></view>
+
+    <picker mode="selector" range="{{loopLabels}}" value="{{loopIndex}}" bindchange="onLoopPick">
+      <view class="opt-row">
+        <text class="opt-label">循环</text>
+        <text class="opt-value">{{loopLabels[loopIndex]}}</text>
+      </view>
+    </picker>
+  </view>
+
+  <view class="result glass" wx:if="{{outPath}}">
+    <view class="result-title">预览</view>
+    <image class="result-img" src="{{outPath}}" mode="widthFix" />
+    <view class="result-actions">
+      <button class="btn btn-primary" bindtap="onSave">保存到相册</button>
+    </view>
+  </view>
+
+  <view class="bottom safe-area">
+    <button class="btn btn-primary" bindtap="onGenerate" disabled="{{processing}}">生成GIF</button>
+    <view class="progress" wx:if="{{processing}}">{{progressText}}</view>
+  </view>
+
+  <!-- 隐藏工作画布：2d canvas 用于取像素 -->
+  <canvas id="workCanvas" type="2d" class="hidden-canvas"></canvas>
+</view>
+
+
