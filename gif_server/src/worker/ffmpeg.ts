@@ -19,6 +19,7 @@ export type TextConfig = {
   shadowOpacity?: number
   bgColor?: string
   bgOpacity?: number
+  animation?: string  // 动画类型：'', 'fade', 'slide', 'bounce', 'pulse', 'shake', 'zoom'
 }
 
 export type CropConfig = {
@@ -131,16 +132,56 @@ function getChineseFontPath(): string {
  * 构建 drawtext 滤镜（支持多层描边）
  * 返回一个或多个 drawtext 滤镜，用逗号连接
  */
-function buildDrawtextFilter(textConfig: TextConfig, videoWidth: number): string {
+function buildDrawtextFilter(textConfig: TextConfig, videoWidth: number, duration: number = 1): string {
   const text = escapeDrawtext(textConfig.content)
-  const fontSize = Math.round(textConfig.fontSizeNum * (videoWidth / 375)) // 按比例缩放
+  const baseFontSize = Math.round(textConfig.fontSizeNum * (videoWidth / 375)) // 按比例缩放
   const fontColor = colorToFfmpeg(textConfig.color)
   // 透明度：0=不透明(alpha=1), 100=全透明(alpha=0)
-  const textAlpha = (100 - (textConfig.textOpacity || 0)) / 100
+  const baseTextAlpha = (100 - (textConfig.textOpacity || 0)) / 100
   
   // 位置计算：百分比转换为表达式
-  const xExpr = `(w-text_w)*${textConfig.x}/100`
-  const yExpr = `(h-text_h)*${textConfig.y}/100`
+  const baseXExpr = `(w-text_w)*${textConfig.x}/100`
+  const baseYExpr = `(h-text_h)*${textConfig.y}/100`
+  
+  // 动画效果计算（使用 FFmpeg 表达式，t 是当前时间）
+  const animation = textConfig.animation || ''
+  let fontSizeExpr = String(baseFontSize)
+  let alphaExpr = String(baseTextAlpha)
+  let xExpr = baseXExpr
+  let yExpr = baseYExpr
+  
+  if (animation && duration > 0) {
+    // 使用 t 表示当前时间（秒），循环周期为 duration
+    const period = duration // 动画周期（秒）
+    const tMod = `mod(t\\,${period})` // t 对周期取模，实现循环（注意逗号需要转义）
+    
+    switch (animation) {
+      case 'fade':
+        // 淡入淡出：0-0.5 淡入，0.5-1 淡出
+        alphaExpr = `${baseTextAlpha}*if(lt(${tMod}\\,${period/2})\\,${tMod}*2/${period}\\,2-${tMod}*2/${period})`
+        break
+      case 'pulse':
+        // 脉冲：缩放 1.0 -> 1.1 -> 1.0
+        fontSizeExpr = `${baseFontSize}*(1+0.1*sin(2*PI*${tMod}/${period}))`
+        break
+      case 'bounce':
+        // 弹跳：上下移动
+        yExpr = `${baseYExpr}-20*abs(sin(2*PI*${tMod}/${period}))`
+        break
+      case 'shake':
+        // 摇晃：左右抖动
+        xExpr = `${baseXExpr}+5*sin(10*PI*${tMod}/${period})`
+        break
+      case 'zoom':
+        // 缩放：1.0 -> 1.2 -> 1.0
+        fontSizeExpr = `${baseFontSize}*(1+0.2*sin(2*PI*${tMod}/${period}))`
+        break
+      case 'slide':
+        // 滑入：左右滑动
+        xExpr = `${baseXExpr}+10*sin(2*PI*${tMod}/${period})`
+        break
+    }
+  }
   
   // 获取中文字体
   const fontPath = getChineseFontPath()
@@ -168,13 +209,13 @@ function buildDrawtextFilter(textConfig: TextConfig, videoWidth: number): string
       const strokeYExpr = oy >= 0 ? `${yExpr}+${oy}` : `${yExpr}${oy}`
       
       filters.push(
-        `drawtext=text='${text}'${fontFile}:fontsize=${fontSize}:fontcolor=${strokeColor}@${strokeAlpha}:x=${strokeXExpr}:y=${strokeYExpr}`
+        `drawtext=text='${text}'${fontFile}:fontsize=${fontSizeExpr}:fontcolor=${strokeColor}@${strokeAlpha}:x=${strokeXExpr}:y=${strokeYExpr}`
       )
     }
   }
   
   // 主文字层
-  let mainFilter = `drawtext=text='${text}'${fontFile}:fontsize=${fontSize}:fontcolor=${fontColor}@${textAlpha}:x=${xExpr}:y=${yExpr}`
+  let mainFilter = `drawtext=text='${text}'${fontFile}:fontsize=${fontSizeExpr}:fontcolor=${fontColor}@${alphaExpr}:x=${xExpr}:y=${yExpr}`
   
   // 阴影 - 根据角度计算偏移
   if (textConfig.shadowColor && textConfig.shadowDistance && textConfig.shadowDistance > 0) {
@@ -227,7 +268,7 @@ export async function convertVideoToGifWithFfmpeg(opts: VideoToGifOptions): Prom
   if (opts.textConfig && opts.textConfig.content) {
     // 如果裁剪了，文字位置需要基于裁剪后的尺寸
     const textWidth = opts.cropConfig ? opts.width * (opts.cropConfig.width / 100) : opts.width
-    drawtextFilter = ',' + buildDrawtextFilter(opts.textConfig, textWidth)
+    drawtextFilter = ',' + buildDrawtextFilter(opts.textConfig, textWidth, duration)
   }
 
   // palettegen -> paletteuse for better colors

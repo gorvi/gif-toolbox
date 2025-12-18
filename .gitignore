@@ -1,49 +1,18 @@
-# dependencies
-node_modules/
-
-# build output
-dist/
-build/
-
-# logs
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# runtime data
-*.pid
-*.seed
-*.sqlite
-*.sqlite3
-*.db
-
-# env files (keep env.example tracked)
+node_modules
+dist
 .env
-.env.*
-
-# coverage
-coverage/
-.nyc_output/
-
-# caches
-.cache/
-.turbo/
-.eslintcache
-*.tsbuildinfo
-
-# OS / editor
 .DS_Store
-Thumbs.db
-desktop.ini
-.idea/
-.vscode/
+.idea
+.vscode
+npm-debug.log*
+yarn-error.log*
+package-lock.json
+pnpm-lock.yaml
 
-# WeChat Mini-program
-gif_front/project.private.config.json
-gif_front/node_modules/
+# WeChat miniprogram build outputs
+gif_front/miniprogram_npm
+gif_front/node_modules
+gif_front/dist
 
-# Data directories
-gif_server/data/
+# FFmpeg temp files
+tmp

@@ -3,93 +3,16 @@ const { chooseSingleVideo } = require('../../utils/media')
 const { formatHms } = require('../../utils/time')
 const { isVideoToGifSupported, convertVideoToGif } = require('../../services/video-to-gif')
 
+// 导入工具函数 / 模块
+const { clamp, toFixed1, filterEmoji, formatHms1, formatClock, buildTicks } = require('./utils')
+const { createTimelineHandler, MIN_RANGE_S } = require('./timeline-handler')
+const { createVideoController } = require('./video-control')
+const { createTextEditor } = require('./text-editor')
+const { createCropHandler } = require('./crop-handler')
+const { createMainTimeline } = require('./main-timeline')
+
 const RESOLUTION_OPTIONS = [160, 240, 320, 480, 600, 720]
 const FPS_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-const MIN_RANGE_S = 0.1
-
-function clamp(n, min, max) {
-  return Math.min(max, Math.max(min, n))
-}
-
-function toFixed1(n) {
-  return Math.round(n * 10) / 10
-}
-
-// 过滤掉emoji字符
-function filterEmoji(str) {
-  if (!str) return str
-  // 匹配常见emoji的Unicode范围（包括基本emoji、表情符号、符号等）
-  // 使用更简洁的正则表达式覆盖主要emoji范围
-  const emojiRegex = /[\u{1F300}-\u{1F9FF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F900}-\u{1F9FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{200D}]|[\u{FE00}-\u{FE0F}]|[\u{203C}-\u{2049}]|[\u{2122}-\u{2139}]|[\u{2194}-\u{21AA}]|[\u{231A}-\u{23FA}]|[\u{24C2}]|[\u{25AA}-\u{27BF}]|[\u{2934}-\u{2935}]|[\u{2B05}-\u{2B07}]|[\u{2B1B}-\u{2B1C}]|[\u{2B50}]|[\u{2B55}]|[\u{3030}]|[\u{303D}]|[\u{3297}-\u{3299}]/gu
-  return str.replace(emojiRegex, '')
-}
-
-function pad2(n) {
-  const s = String(Math.floor(Math.max(0, n)))
-  return s.length >= 2 ? s : `0${s}`
-}
-
-function formatHms1(totalSeconds) {
-  const t = Math.max(0, Number(totalSeconds || 0))
-  const sec = Math.floor(t)
-  const d = Math.floor((t - sec) * 10 + 1e-6)
-  const h = Math.floor(sec / 3600)
-  const m = Math.floor((sec % 3600) / 60)
-  const s = sec % 60
-  return `${pad2(h)}:${pad2(m)}:${pad2(s)}.${d}`
-}
-
-function formatMsLabel(totalSeconds) {
-  const sec = Math.floor(Math.max(0, totalSeconds))
-  const m = Math.floor(sec / 60)
-  const s = sec % 60
-  return `${pad2(m)}:${pad2(s)}`
-}
-
-/**
- * 生成刻度线（0.1 秒精度）
- * - 整数秒：big（最长刻度，显示标签）
- * - 0.5 秒：mid（中等长度）
- * - 其他 0.1 秒：small（最短）
- */
-function buildTicks(windowStartS, windowDurationS) {
-  const base = Math.max(0, Number(windowStartS || 0))
-  const d = Math.max(0, Number(windowDurationS || 0))
-  if (d <= 0) return []
-
-  const ticks = []
-  const stepS = 0.1 // 0.1 秒精度
-  const maxT = Math.floor(d * 10) / 10 // 保持 0.1 精度
-
-  for (let i = 0; i <= maxT * 10; i++) {
-    const t = toFixed1(i * stepS)
-    if (t > d) break
-
-    // 判断刻度类型
-    const isInteger = Math.abs(t - Math.round(t)) < 0.01
-    const isHalf = Math.abs((t * 10) % 5) < 0.01 && !isInteger
-
-    let kind = 'small'
-    if (isInteger) {
-      kind = 'big'
-    } else if (isHalf) {
-      kind = 'mid'
-    }
-
-    // 只在整数秒显示标签
-    const showLabel = isInteger
-    const absoluteTime = toFixed1(base + t)
-
-    ticks.push({
-      idx: i,
-      kind,
-      leftPct: (t / d) * 100,
-      label: showLabel ? formatMsLabel(absoluteTime) : '',
-    })
-  }
-
-  return ticks
-}
 
 Page({
   data: {
@@ -115,23 +38,18 @@ Page({
 
     durationText: '00:00:00',
     currentText: '00:00:00/00:00:00',
-    startText: '00:00:00',
-    endText: '00:00:00',
-    rangeLeftPct: 0,
-    rangeWidthPct: 0,
-    handleLeftPct: 0,
-    handleRightPct: 0,
-    timelineDragging: false,
-    dragActiveType: '',
+    // 左下角时间 HUD（当前 / 总时长，支持 mm:ss.d 或 hh:mm:ss.d）
+    clockText: '00:00.0 / 00:00.0',
 
     supportTip: '',
     processing: false,
     progressText: '',
     outPath: '',
+    showGifPreview: false,  // 是否显示GIF预览弹框
+    showFullscreenPreview: false,  // 是否显示全屏预览
 
-    // 文字编辑面板
-    showTextPanel: false,
-    textActiveTab: 'keyboard',
+    // 文字编辑面板（改为首页直接编辑）
+    textActiveTab: 'none',  // 'none'表示不显示编辑组件，其他值表示显示对应tab
     textInputFocus: false,
     textDragging: false,
     colorOptions: ['#FFFFFF', '#000000', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF', '#FF8800', '#880000', '#888888'],
@@ -148,6 +66,8 @@ Page({
     cropPreviewConfig: null, // 主页预览用的裁剪配置（已转换为主页坐标系统）
     cropDragging: false,
     cropDragType: '',    // 'move', 'resize-tl', 'resize-tr', 'resize-bl', 'resize-br', 'resize-t', 'resize-b', 'resize-l', 'resize-r'
+    cropTextDragging: false, // 裁剪面板中文字拖动状态
+    cropTextConfig: null, // 裁剪面板中文字的配置（已转换为裁剪面板坐标系统）
     cropAspectRatios: [
       { label: '自由', value: 'free' },
       { label: '1:1', value: '1:1' },
@@ -178,7 +98,17 @@ Page({
       bgColor: '',             // 背景颜色，空表示无
       bgOpacity: 0,            // 背景透明度 0=不透明
       _bgStyle: '',            // 计算后的背景CSS样式
+      animation: '',           // 动画类型：'', 'fade', 'slide', 'bounce', 'pulse', 'shake', 'zoom'
     },
+    animationOptions: [
+      { label: '无', value: '' },
+      { label: '淡入', value: 'fade' },
+      { label: '滑入', value: 'slide' },
+      { label: '弹跳', value: 'bounce' },
+      { label: '脉冲', value: 'pulse' },
+      { label: '摇晃', value: 'shake' },
+      { label: '缩放', value: 'zoom' },
+    ],
     textPreviewConfig: null, // 主页预览用的文字配置（已转换为主页坐标系统）
   },
 
@@ -188,15 +118,93 @@ Page({
       this.setData({ supportTip: support.reason })
     }
     this._videoCtx = null
-    this._rulerWidthPx = 0
     this._drag = { active: false }
+    this._edgeTouch = { startX: 0, startY: 0, startTime: 0 }
+    
+    // 初始化模块
+    this._timelineHandler = createTimelineHandler(this)
+    this._videoController = createVideoController(this)
+    this._textEditor = createTextEditor(this)
+    this._cropHandler = createCropHandler(this)
+    this._mainTimeline = createMainTimeline(this)
+    // 主时间线是否跟随播放进度自动滚动
+    this._mainTimelineFollow = true
+    
     this.updateUiByRange()
     // 测试后端连接
     this.testBackendConnection()
+    
+    // 检查是否有从首页传递过来的视频
+    const app = getApp()
+    if (app.globalData && app.globalData.selectedVideoPath) {
+      // 使用传递过来的视频
+      const videoPath = app.globalData.selectedVideoPath
+      const videoWidth = app.globalData.selectedVideoWidth || 0
+      const videoHeight = app.globalData.selectedVideoHeight || 0
+      const duration = app.globalData.selectedVideoDuration || 0
+      
+      // 清除全局数据
+      app.globalData.selectedVideoPath = null
+      app.globalData.selectedVideoWidth = null
+      app.globalData.selectedVideoHeight = null
+      app.globalData.selectedVideoDuration = null
+      
+      // 设置视频数据
+      this.setVideoData(videoPath, videoWidth, videoHeight, duration)
+    }
+  },
+  
+  // 设置视频数据的公共方法
+  setVideoData(videoPath, videoWidth, videoHeight, duration) {
+    const durationS = toFixed1(duration || 0)
+    const safeDurationS = Math.max(0, durationS)
+    const startS = 0
+    // 默认截取时长 5 秒（不足 5 秒则取整段），但不超过最大截取时长
+    const defaultClip = 5
+    const endS = Math.min(safeDurationS, defaultClip, MAX_CLIP_DURATION_S)
+    const windowDurationS = Math.min(safeDurationS, MAX_CLIP_DURATION_S)
+    const windowStartS = 0
+
+    this.setData({
+      videoPath,
+      videoWidth,
+      videoHeight,
+      durationS: safeDurationS,
+      startS,
+      endS,
+      windowStartS,
+      windowDurationS,
+      currentS: 0,
+      segmentPlaying: false,
+      ticks: buildTicks(windowStartS, windowDurationS),
+    })
+    
+    // 更新UI
+    this.updateUiByRange()
+    // 初始化左下角时间 HUD
+    this.updateClockText()
+
+    // 同步主时间线截取高亮区域
+    if (this._mainTimeline && this._mainTimeline.updateRangeFromPage) {
+      this._mainTimeline.updateRangeFromPage()
+    }
+
+    // 初始化主时间线
+    if (this._mainTimeline) {
+      this._mainTimeline.init(safeDurationS)
+    }
+    
+    // 延迟获取视频上下文，确保视频组件已渲染
+    setTimeout(() => {
+      this._videoCtx = wx.createVideoContext('videoPlayer', this)
+      if (this._videoCtx) {
+        // 跳转到开始位置
+        this._videoCtx.seek(startS)
+      }
+    }, 100)
   },
 
   onReady() {
-    this.refreshRulerRect()
   },
 
   testBackendConnection() {
@@ -241,61 +249,22 @@ Page({
       })
   },
 
-  refreshRulerRect() {
-    const q = wx.createSelectorQuery().in(this)
-    q.select('.ruler-inner').boundingClientRect()
-    q.exec((res) => {
-      const rect = res && res[0]
-      if (rect && rect.width) {
-        this._rulerWidthPx = rect.width
-      }
-    })
-  },
-
   /**
    * 跳转到指定时间点
    */
   seekTo(second) {
-    if (!this.data.videoPath) return
-    if (!this._videoCtx) this._videoCtx = wx.createVideoContext('videoPlayer', this)
-    
-    const t = toFixed1(Math.max(0, Number(second || 0)))
-    this.setData({ currentS: t })
-    this._videoCtx.seek(t)
+    this._videoController.seekTo(second)
   },
 
   async onChooseVideo() {
     try {
       const res = await chooseSingleVideo()
-      const durationS = toFixed1(res.duration || 0)
-      const safeDurationS = Math.max(0, durationS)
-      const startS = 0
-      const endS = Math.min(safeDurationS, MAX_CLIP_DURATION_S)
-      const windowDurationS = Math.min(safeDurationS, MAX_CLIP_DURATION_S)
-      const windowStartS = 0
-
-      this.setData({
-        videoPath: res.tempFilePath,
-        videoWidth: res.width || 0,
-        videoHeight: res.height || 0,
-        durationS: safeDurationS,
-        startS,
-        endS,
-        windowStartS,
-        windowDurationS,
-        currentS: 0,
-        segmentPlaying: false,
-        ticks: buildTicks(windowStartS, windowDurationS),
-      })
-      this.updateUiByRange()
-      
-      // 获取视频上下文
-      setTimeout(() => {
-        this._videoCtx = wx.createVideoContext('videoPlayer', this)
-        this.refreshRulerRect()
-      }, 100)
+      // 使用公共方法设置视频数据
+      this.setVideoData(res.tempFilePath, res.width || 0, res.height || 0, res.duration || 0)
     } catch (e) {
-      wx.showToast({ title: '未选择视频', icon: 'none' })
+      if (e.errMsg && !e.errMsg.includes('cancel')) {
+        wx.showToast({ title: '未选择视频', icon: 'none' })
+      }
     }
   },
 
@@ -307,7 +276,13 @@ Page({
     // 更新时间显示
     if (Math.abs((this.data.currentS || 0) - currentS) >= 0.1) {
       this.setData({ currentS })
+      this.updateClockText()
       this.updateUiByRange()
+
+      // 主时间线联动：仅在跟随模式下才自动滚动，避免用户手动拖动后“弹回去”
+      if (this._mainTimelineFollow && this._mainTimeline && this._mainTimeline.onVideoTimeUpdate) {
+        this._mainTimeline.onVideoTimeUpdate(currentS)
+      }
     }
     
     // 片段播放：到达终点时停止
@@ -327,8 +302,30 @@ Page({
     wx.showToast({ title: '视频加载失败', icon: 'none' })
   },
 
-  // 视频加载完成，获取视频尺寸
-  onVideoLoaded() {
+  // 视频加载完成，获取视频尺寸 & 补充时长（兜底）
+  onVideoLoaded(e) {
+    // 如果 durationS 还是 0，尝试从事件中兜底获取一次时长
+    const metaDuration = Number(e?.detail?.duration || 0)
+    if (!this.data.durationS && metaDuration > 0) {
+      const durationS = toFixed1(metaDuration)
+      const safeDurationS = Math.max(0, durationS)
+      const defaultClip = 5
+      const endS = Math.min(safeDurationS, defaultClip, MAX_CLIP_DURATION_S)
+      const windowDurationS = Math.min(safeDurationS, MAX_CLIP_DURATION_S)
+
+      this.setData({
+        durationS: safeDurationS,
+        endS,
+        windowDurationS,
+        ticks: buildTicks(0, windowDurationS),
+      })
+
+      // 更新主时间线时长
+      if (this._mainTimeline) {
+        this._mainTimeline.updateDuration(safeDurationS)
+      }
+    }
+
     this.updateMainVideoRect()
     // 如果已有裁剪配置或文字配置，更新预览
     const hasCrop = this.data.cropConfig && (this.data.cropConfig.x !== 0 || this.data.cropConfig.y !== 0 || 
@@ -339,66 +336,33 @@ Page({
         this.updateMainVideoRect()
       }, 200)
     }
+    // 首次加载时同步一次 HUD 时间
+    this.updateClockText()
+  },
+
+  /**
+   * 更新左下角时间 HUD（当前 / 总时长）
+   */
+  updateClockText() {
+    const durationS = this.data.durationS || 0
+    const currentS = this.data.currentS || 0
+    const cur = formatClock(currentS, durationS)
+    const total = formatClock(durationS, durationS)
+    this.setData({
+      clockText: `${cur} / ${total}`,
+    })
   },
 
   // 播放全篇视频
   onToggleFullPlay() {
-    if (!this.data.videoPath) {
-      wx.showToast({ title: '请先选择视频', icon: 'none' })
-      return
-    }
-    
-    // 停止片段播放状态
-    if (this.data.segmentPlaying) {
-      this.setData({ segmentPlaying: false })
-    }
-    
-    if (!this._videoCtx) this._videoCtx = wx.createVideoContext('videoPlayer', this)
-    this._videoCtx.play()
+    this._videoController.playFull()
   },
 
   /**
    * 播放选中片段（startS -> endS）
-   * 方案：seek 到 startS，播放，在 timeupdate 中检测到达 endS 时暂停
    */
   onToggleSegmentPlay() {
-    if (!this.data.videoPath) {
-      wx.showToast({ title: '请先选择视频', icon: 'none' })
-      return
-    }
-
-    const startS = this.data.startS || 0
-    const endS = this.data.endS || 0
-    if (endS - startS < MIN_RANGE_S) {
-      wx.showToast({ title: '截取范围过短', icon: 'none' })
-      return
-    }
-
-    // 如果正在播放片段，停止
-    if (this.data.segmentPlaying) {
-      if (this._videoCtx) this._videoCtx.pause()
-      this.setData({ segmentPlaying: false })
-      return
-    }
-
-    console.log('[片段播放] 准备播放', startS, '->', endS)
-
-    if (!this._videoCtx) this._videoCtx = wx.createVideoContext('videoPlayer', this)
-
-    // 设置片段播放状态
-    this.setData({
-      segmentPlaying: true,
-      segmentEndS: endS,
-      currentS: startS,
-    })
-
-    // seek 到起点，然后播放
-    this._videoCtx.seek(startS)
-    setTimeout(() => {
-      if (this._videoCtx && this.data.segmentPlaying) {
-        this._videoCtx.play()
-      }
-    }, 200)
+    this._videoController.playSegment()
   },
 
 
@@ -408,48 +372,51 @@ Page({
       wx.showToast({ title: '请先选择视频', icon: 'none' })
       return
     }
+    // 如果当前已经是文字编辑模式，切换tab；否则打开键盘tab
+    const newTab = this.data.textActiveTab === 'none' || this.data.textActiveTab === 'crop' ? 'keyboard' : this.data.textActiveTab
+    // 初始化文字位置（如果还没有设置）
+    if (!this.data.textConfig.x && this.data.textConfig.x !== 0) {
+      this.setData({
+        'textConfig.x': 50,
+      })
+    }
+    if (!this.data.textConfig.y && this.data.textConfig.y !== 0) {
+      this.setData({
+        'textConfig.y': 50,
+      })
+    }
     // 初始化阴影偏移量
     const { shadowDistance, shadowAngle } = this.data.textConfig
-    const { shadowX, shadowY } = this.calcShadowOffset(shadowDistance, shadowAngle)
+    const { shadowX, shadowY } = this._textEditor.calcShadowOffset(shadowDistance, shadowAngle)
     this.setData({ 
-      showTextPanel: true,
-      textActiveTab: 'keyboard',
-      textInputFocus: true,
+      textActiveTab: newTab,
+      textInputFocus: newTab === 'keyboard',
       'textConfig.shadowX': shadowX,
       'textConfig.shadowY': shadowY,
     }, () => {
-      this.updateShadowStyle()
-      this.updateBgStyle()
+      this._textEditor.updateShadowStyle()
+      this._textEditor.updateBgStyle()
     })
     // 延迟获取预览区域尺寸
     setTimeout(() => {
-      this.getTextPreviewRect()
+      this.updateMainVideoRect()
     }, 300)
   },
 
-  onTextPanelClose() {
-    this.setData({ showTextPanel: false, textInputFocus: false })
+  // 关闭编辑组件（点击其他功能或空白区域时调用）
+  onCloseEditComponent() {
+    this.setData({ 
+      textActiveTab: 'none',
+      textInputFocus: false 
+    })
     // 更新主页预览配置
     setTimeout(() => {
       this.updateMainVideoRect()
-      // 确保文字预览配置也被更新
       if (this.data.textConfig && this.data.textConfig.content) {
         this.updateTextPreviewConfig()
       }
-    }, 200)
-  },
-
-  onTextDone() {
-    this.setData({ showTextPanel: false, textInputFocus: false })
-    if (this.data.textConfig.content) {
-      wx.showToast({ title: '文字已添加', icon: 'success' })
-    }
-    // 更新主页预览配置
-    setTimeout(() => {
-      this.updateMainVideoRect()
-      // 确保文字预览配置也被更新
-      if (this.data.textConfig && this.data.textConfig.content) {
-        this.updateTextPreviewConfig()
+      if (this.data.cropConfig && (this.data.cropConfig.x !== 0 || this.data.cropConfig.y !== 0 || this.data.cropConfig.width !== 100 || this.data.cropConfig.height !== 100)) {
+        this.updateCropPreviewConfig()
       }
     }, 200)
   },
@@ -461,10 +428,20 @@ Page({
       textInputFocus: tab === 'keyboard'
     })
   },
+  
+  onAnimationChange(e) {
+    let animation = e.currentTarget.dataset.animation
+    // 如果传递的是 'none'，表示空字符串
+    if (animation === 'none') {
+      animation = ''
+    }
+    console.log('[动画选择]', animation)
+    this.setData({ 'textConfig.animation': animation || '' })
+  },
 
   onTextInput(e) {
     // 过滤掉emoji字符
-    const filteredValue = filterEmoji(e.detail.value)
+    const filteredValue = this._textEditor.filterEmoji(e.detail.value)
     this.setData({ 'textConfig.content': filteredValue })
     // 如果过滤掉了字符，提示用户
     if (filteredValue !== e.detail.value) {
@@ -491,7 +468,7 @@ Page({
     
     // 双指捏合：记录初始距离和字号
     if (touches.length >= 2) {
-      const dist = this.getTouchDistance(touches[0], touches[1])
+      const dist = this._utils.getDistance(touches[0], touches[1])
       this._pinch = {
         active: true,
         startDist: dist,
@@ -507,7 +484,7 @@ Page({
     
     // 先获取容器尺寸（同步获取，避免拖动时异步查询导致卡顿）
     const query = wx.createSelectorQuery().in(this)
-    query.select('#textVideoArea').boundingClientRect()
+    query.select('#mainVideoContainer').boundingClientRect()
     query.exec((res) => {
       if (res && res[0]) {
         const container = res[0]
@@ -515,8 +492,8 @@ Page({
           active: true,
           startX: touch.clientX,
           startY: touch.clientY,
-          baseX: this.data.textConfig.x,
-          baseY: this.data.textConfig.y,
+          baseX: this.data.textConfig.x || 50,
+          baseY: this.data.textConfig.y || 50,
           containerWidth: container.width,
           containerHeight: container.height,
         }
@@ -528,17 +505,17 @@ Page({
           active: true,
           startX: touch.clientX,
           startY: touch.clientY,
-          baseX: this.data.textConfig.x,
-          baseY: this.data.textConfig.y,
+          baseX: this.data.textConfig.x || 50,
+          baseY: this.data.textConfig.y || 50,
         }
         this._pinch = { active: false }
         this.setData({ textDragging: true })
       }
     })
     
-    // 获取预览区域尺寸
-    if (!this._textPreviewRect) {
-      this.getTextPreviewRect()
+    // 获取主视频区域尺寸
+    if (!this._mainVideoOffsetX) {
+      this.updateMainVideoRect()
     }
   },
 
@@ -547,7 +524,7 @@ Page({
     
     // 双指捏合：缩放字号
     if (touches.length >= 2 && this._pinch && this._pinch.active) {
-      const dist = this.getTouchDistance(touches[0], touches[1])
+      const dist = this._utils.getDistance(touches[0], touches[1])
       const scale = dist / this._pinch.startDist
       let newSize = Math.round(this._pinch.baseFontSize * scale)
       // 限制字号范围 12-120
@@ -579,11 +556,11 @@ Page({
     let newY = this._textDrag.baseY + deltaYPct
 
     // 限制范围在视频实际显示区域内（考虑偏移）
-    if (this._textVideoOffsetX !== undefined && this._textVideoOffsetX !== null) {
-      const minX = this._textVideoOffsetX
-      const minY = this._textVideoOffsetY
-      const maxX = this._textVideoOffsetX + this._textVideoWidthPct
-      const maxY = this._textVideoOffsetY + this._textVideoHeightPct
+    if (this._mainVideoOffsetX !== undefined && this._mainVideoOffsetX !== null) {
+      const minX = this._mainVideoOffsetX
+      const minY = this._mainVideoOffsetY
+      const maxX = this._mainVideoOffsetX + this._mainVideoWidthPct
+      const maxY = this._mainVideoOffsetY + this._mainVideoHeightPct
       
       newX = Math.max(minX + 2, Math.min(maxX - 2, newX))
       newY = Math.max(minY + 2, Math.min(maxY - 2, newY))
@@ -611,11 +588,9 @@ Page({
     this.updateTextPreviewConfig()
   },
 
-  // 计算两点之间的距离
+  // 计算两点之间的距离（使用工具函数）
   getTouchDistance(touch1, touch2) {
-    const dx = touch1.clientX - touch2.clientX
-    const dy = touch1.clientY - touch2.clientY
-    return Math.sqrt(dx * dx + dy * dy)
+    return this._utils.getDistance(touch1, touch2)
   },
 
   onTextDelete() {
@@ -918,106 +893,65 @@ Page({
   onShadowDistanceChange(e) {
     const distance = e.detail.value
     const { shadowAngle } = this.data.textConfig
-    const { shadowX, shadowY } = this.calcShadowOffset(distance, shadowAngle)
+    const { shadowX, shadowY } = this._textEditor.calcShadowOffset(distance, shadowAngle)
     this.setData({ 
       'textConfig.shadowDistance': distance,
       'textConfig.shadowX': shadowX,
       'textConfig.shadowY': shadowY,
     }, () => {
-      this.updateShadowStyle()
+      this._textEditor.updateShadowStyle()
     })
   },
 
   onShadowAngleChange(e) {
     const angle = e.detail.value
     const { shadowDistance } = this.data.textConfig
-    const { shadowX, shadowY } = this.calcShadowOffset(shadowDistance, angle)
+    const { shadowX, shadowY } = this._textEditor.calcShadowOffset(shadowDistance, angle)
     this.setData({ 
       'textConfig.shadowAngle': angle,
       'textConfig.shadowX': shadowX,
       'textConfig.shadowY': shadowY,
     }, () => {
-      this.updateShadowStyle()
+      this._textEditor.updateShadowStyle()
     })
   },
 
   onShadowOpacityChange(e) {
     this.setData({ 'textConfig.shadowOpacity': e.detail.value }, () => {
-      this.updateShadowStyle()
+      this._textEditor.updateShadowStyle()
     })
   },
 
   // 计算阴影偏移量
   calcShadowOffset(distance, angle) {
-    const radians = angle * (Math.PI / 180)
-    const shadowX = Math.round((distance / 10) * Math.cos(radians) * 10) / 10
-    const shadowY = Math.round((distance / 10) * Math.sin(radians) * 10) / 10
-    return { shadowX, shadowY }
+    return this._textEditor.calcShadowOffset(distance, angle)
   },
 
-  // 更新阴影CSS样式（两个版本：主预览缩小0.5，弹窗全尺寸）
+  // 更新阴影CSS样式
   updateShadowStyle() {
-    const tc = this.data.textConfig
-    if (!tc.shadowColor || tc.shadowDistance <= 0) {
-      this.setData({ 
-        'textConfig._shadowStyle': 'none',
-        'textConfig._shadowStyleFull': 'none',
-      })
-      return
-    }
-    const { shadowX, shadowY } = tc
-    // 透明度：0=不透明(1.0), 100=全透明(0)
-    const opacity = (100 - tc.shadowOpacity) / 100
-    const rgba = this.hexToRgba(tc.shadowColor, opacity)
-    // 主预览（缩小0.5倍）
-    const blurSmall = tc.shadowBlur / 10
-    const styleSmall = `${shadowX * 0.5}px ${shadowY * 0.5}px ${blurSmall}px ${rgba}`
-    // 弹窗（全尺寸）
-    const blurFull = tc.shadowBlur / 5
-    const styleFull = `${shadowX}px ${shadowY}px ${blurFull}px ${rgba}`
-    this.setData({ 
-      'textConfig._shadowStyle': styleSmall,
-      'textConfig._shadowStyleFull': styleFull,
-    })
+    this._textEditor.updateShadowStyle()
   },
 
   // 更新背景CSS样式
   updateBgStyle() {
-    const tc = this.data.textConfig
-    if (!tc.bgColor) {
-      this.setData({ 'textConfig._bgStyle': '' })
-      return
-    }
-    // 透明度：0=不透明(1.0), 100=全透明(0)
-    const opacity = (100 - tc.bgOpacity) / 100
-    const rgba = this.hexToRgba(tc.bgColor, opacity)
-    const style = `background: ${rgba}; padding: 8px 12px; border-radius: 4px;`
-    this.setData({ 'textConfig._bgStyle': style })
+    this._textEditor.updateBgStyle()
   },
 
   // 将 hex 颜色转换为 rgba
   hexToRgba(hex, alpha) {
-    if (!hex) return 'transparent'
-    const shorthand = /^#?([a-f\d])([a-f\d])([a-f\d])$/i
-    hex = hex.replace(shorthand, (m, r, g, b) => r + r + g + g + b + b)
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-    if (!result) return hex
-    const r = parseInt(result[1], 16)
-    const g = parseInt(result[2], 16)
-    const b = parseInt(result[3], 16)
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+    return this._textEditor.hexToRgba(hex, alpha)
   },
 
   onBgColorChange(e) {
     const color = e.currentTarget.dataset.color
     this.setData({ 'textConfig.bgColor': color }, () => {
-      this.updateBgStyle()
+      this._textEditor.updateBgStyle()
     })
   },
 
   onBgOpacityChange(e) {
     this.setData({ 'textConfig.bgOpacity': e.detail.value }, () => {
-      this.updateBgStyle()
+      this._textEditor.updateBgStyle()
     })
   },
 
@@ -1026,9 +960,10 @@ Page({
       wx.showToast({ title: '请先选择视频', icon: 'none' })
       return
     }
-    // 打开裁剪面板，初始化裁剪区域
+    // 切换到裁剪tab（首页直接编辑）
+    const newTab = this.data.textActiveTab === 'crop' ? 'none' : 'crop'
     this.setData({ 
-      showCropPanel: true,
+      textActiveTab: newTab,
       cropConfig: {
         x: 0,
         y: 0,
@@ -1038,36 +973,38 @@ Page({
       },
     })
     // 延迟获取视频区域尺寸，确保 wrapper 和视频已渲染
-    setTimeout(() => {
-      this.getCropVideoRect()
-      // 获取后，如果是自由模式，重置为视频实际显示区域
-      if (this.data.cropConfig.aspectRatio === 'free') {
-        if (this._cropVideoOffsetX !== undefined && this._cropVideoOffsetX !== null) {
-          this.setData({
-            cropConfig: {
-              ...this.data.cropConfig,
-              x: this._cropVideoOffsetX,
-              y: this._cropVideoOffsetY,
-              width: this._cropVideoWidthPct,
-              height: this._cropVideoHeightPct,
-            },
-          })
+    if (newTab === 'crop') {
+      setTimeout(() => {
+        this.updateMainVideoRect()
+        // 获取后，如果是自由模式，重置为视频实际显示区域
+        if (this.data.cropConfig.aspectRatio === 'free') {
+          if (this._mainVideoOffsetX !== undefined && this._mainVideoOffsetX !== null) {
+            this.setData({
+              cropConfig: {
+                ...this.data.cropConfig,
+                x: this._mainVideoOffsetX,
+                y: this._mainVideoOffsetY,
+                width: this._mainVideoWidthPct,
+                height: this._mainVideoHeightPct,
+              },
+            })
+          }
         }
-      }
-    }, 300)
+      }, 300)
+    }
   },
 
-  onCropPanelClose() {
-    this.setData({ showCropPanel: false })
+  // 全屏预览功能
+  onFullscreenPreview() {
+    if (!this.data.videoPath) {
+      wx.showToast({ title: '请先选择视频', icon: 'none' })
+      return
+    }
+    this.setData({ showFullscreenPreview: true })
   },
 
-  onCropDone() {
-    this.setData({ showCropPanel: false })
-    wx.showToast({ title: '裁剪设置已保存', icon: 'success' })
-    // 更新裁剪预览配置
-    setTimeout(() => {
-      this.updateMainVideoRect()
-    }, 100)
+  onCloseFullscreenPreview() {
+    this.setData({ showFullscreenPreview: false })
   },
 
   // 裁剪视频加载完成，获取视频的原始宽高比
@@ -1078,8 +1015,88 @@ Page({
     // 这里先保存事件，后续通过 getCropVideoRect 计算
     this._cropVideoAspect = null // 暂时设为 null，后续通过计算获取
   },
+  
+  // 文字编辑面板中的视频加载完成
+  onTextVideoLoaded(e) {
+    setTimeout(() => {
+      this.getTextVideoRect()
+    }, 200)
+  },
 
-  // 获取裁剪视频区域尺寸
+  // 获取文字编辑面板中的视频区域尺寸（用于裁剪功能）
+  getTextVideoRect() {
+    const query = wx.createSelectorQuery().in(this)
+    // 获取 wrapper 的尺寸
+    query.select('#textVideoWrapper').boundingClientRect()
+    query.exec((res) => {
+      if (res && res[0]) {
+        const wrapper = res[0]
+        const videoWidth = this.data.videoWidth
+        const videoHeight = this.data.videoHeight
+        
+        if (!videoWidth || !videoHeight) {
+          // 如果没有视频宽高信息，使用 wrapper 的 100%
+          this._textVideoOffsetX = 0
+          this._textVideoOffsetY = 0
+          this._textVideoWidthPct = 100
+          this._textVideoHeightPct = 100
+          this._textVideoRect = wrapper
+          this.ensureCropInBounds()
+          return
+        }
+        
+        // 计算视频的原始宽高比
+        const videoAspect = videoWidth / videoHeight
+        // 计算 wrapper 的宽高比
+        const wrapperAspect = wrapper.width / wrapper.height
+        
+        let displayX, displayY, displayWidth, displayHeight
+        
+        if (videoAspect > wrapperAspect) {
+          // 视频更宽，宽度占满 wrapper，高度按比例缩小（上下有黑边）
+          displayWidth = 100
+          displayHeight = (100 / videoAspect) * wrapperAspect
+          displayX = 0
+          displayY = (100 - displayHeight) / 2
+        } else {
+          // 视频更高，高度占满 wrapper，宽度按比例缩小（左右有黑边）
+          displayHeight = 100
+          displayWidth = (100 * videoAspect) / wrapperAspect
+          displayX = (100 - displayWidth) / 2
+          displayY = 0
+        }
+        
+        // 保存视频的实际显示区域（相对于 wrapper 的百分比）
+        this._textVideoOffsetX = displayX
+        this._textVideoOffsetY = displayY
+        this._textVideoWidthPct = displayWidth
+        this._textVideoHeightPct = displayHeight
+        
+        // 保存 wrapper 的尺寸作为参考
+        this._textVideoRect = wrapper
+        // 保存 wrapper 的宽高比，用于确保裁剪框的视觉宽高比正确
+        this._textWrapperAspect = wrapper.width / wrapper.height
+        
+        // 保存视频实际显示区域的像素尺寸，用于文字字号计算
+        this._textVideoDisplayWidth = (displayWidth / 100) * wrapper.width
+        this._textVideoDisplayHeight = (displayHeight / 100) * wrapper.height
+        
+        // 调试日志
+        console.log('文字编辑面板视频显示区域计算:', {
+          videoSize: { width: videoWidth, height: videoHeight, aspect: videoAspect },
+          wrapperSize: { width: wrapper.width, height: wrapper.height, aspect: wrapperAspect },
+          display: { x: displayX, y: displayY, width: displayWidth, height: displayHeight }
+        })
+        
+        // 获取后确保裁剪框在边界内
+        this.ensureCropInBounds()
+        // 更新裁剪面板中的文字配置
+        this.updateCropTextConfig()
+      }
+    })
+  },
+
+  // 获取裁剪视频区域尺寸（保留用于独立裁剪面板，如果还需要的话）
   getCropVideoRect() {
     const query = wx.createSelectorQuery().in(this)
     // 获取 wrapper 的尺寸
@@ -1133,6 +1150,10 @@ Page({
         // 保存 wrapper 的宽高比，用于确保裁剪框的视觉宽高比正确
         this._cropWrapperAspect = wrapper.width / wrapper.height
         
+        // 保存视频实际显示区域的像素尺寸，用于文字字号计算
+        this._cropVideoDisplayWidth = (displayWidth / 100) * wrapper.width
+        this._cropVideoDisplayHeight = (displayHeight / 100) * wrapper.height
+        
         // 调试日志
         console.log('视频显示区域计算:', {
           videoSize: { width: videoWidth, height: videoHeight, aspect: videoAspect },
@@ -1142,86 +1163,15 @@ Page({
         
         // 获取后确保裁剪框在边界内
         this.ensureCropInBounds()
+        // 更新裁剪面板中的文字配置
+        this.updateCropTextConfig()
       }
     })
   },
 
   // 确保裁剪框在边界内（基于视频的实际显示区域）
   ensureCropInBounds() {
-    const config = { ...this.data.cropConfig }
-    let changed = false
-
-    // 如果已获取视频的实际显示区域，限制裁剪框在视频区域内
-    if (this._cropVideoOffsetX !== undefined && this._cropVideoOffsetX !== null) {
-      const videoMinX = this._cropVideoOffsetX
-      const videoMinY = this._cropVideoOffsetY
-      const videoMaxX = this._cropVideoOffsetX + this._cropVideoWidthPct
-      const videoMaxY = this._cropVideoOffsetY + this._cropVideoHeightPct
-
-      // 限制位置在视频区域内
-      if (config.x < videoMinX) {
-        config.x = videoMinX
-        changed = true
-      }
-      if (config.y < videoMinY) {
-        config.y = videoMinY
-        changed = true
-      }
-      
-      // 限制尺寸不超出视频区域
-      if (config.x + config.width > videoMaxX) {
-        config.width = videoMaxX - config.x
-        changed = true
-      }
-      if (config.y + config.height > videoMaxY) {
-        config.height = videoMaxY - config.y
-        changed = true
-      }
-
-      // 确保最小尺寸
-      if (config.width < 10) {
-        config.width = 10
-        if (config.x + config.width > videoMaxX) config.x = videoMaxX - config.width
-        changed = true
-      }
-      if (config.height < 10) {
-        config.height = 10
-        if (config.y + config.height > videoMaxY) config.y = videoMaxY - config.height
-        changed = true
-      }
-    } else {
-      // 如果还没有获取视频区域，使用 wrapper 的 0-100% 限制
-      if (config.x < 0) {
-        config.x = 0
-        changed = true
-      }
-      if (config.y < 0) {
-        config.y = 0
-        changed = true
-      }
-      if (config.x + config.width > 100) {
-        config.width = 100 - config.x
-        changed = true
-      }
-      if (config.y + config.height > 100) {
-        config.height = 100 - config.y
-        changed = true
-      }
-      if (config.width < 10) {
-        config.width = 10
-        if (config.x + config.width > 100) config.x = 100 - config.width
-        changed = true
-      }
-      if (config.height < 10) {
-        config.height = 10
-        if (config.y + config.height > 100) config.y = 100 - config.height
-        changed = true
-      }
-    }
-
-    if (changed) {
-      this.setData({ cropConfig: config })
-    }
+    this._cropHandler.ensureCropInBounds()
   },
 
   // 选择裁剪比例
@@ -1489,8 +1439,16 @@ Page({
     const touch = e.touches[0]
     const type = e.currentTarget.dataset.type || 'move'
     
-    if (!this._cropVideoRect) {
-      this.getCropVideoRect()
+    // 判断是在文字编辑面板还是独立裁剪面板
+    const isInTextPanel = this.data.showTextPanel && this.data.textActiveTab === 'crop'
+    const videoRect = isInTextPanel ? this._textVideoRect : this._cropVideoRect
+    
+    if (!videoRect) {
+      if (isInTextPanel) {
+        this.getTextVideoRect()
+      } else {
+        this.getCropVideoRect()
+      }
       return
     }
     
@@ -1510,7 +1468,11 @@ Page({
   // 裁剪框拖动中（节流优化）
   onCropDragMove(e) {
     if (!this._cropDrag || !this._cropDrag.active) return
-    if (!this._cropVideoRect) return
+    
+    // 判断是在文字编辑面板还是独立裁剪面板
+    const isInTextPanel = this.data.showTextPanel && this.data.textActiveTab === 'crop'
+    const videoRect = isInTextPanel ? this._textVideoRect : this._cropVideoRect
+    if (!videoRect) return
 
     // 节流：每16ms更新一次（约60fps）
     const now = Date.now()
@@ -1524,8 +1486,8 @@ Page({
     const deltaY = touch.clientY - this._cropDrag.startY
 
     // 转换为百分比
-    const deltaXPct = (deltaX / this._cropVideoRect.width) * 100
-    const deltaYPct = (deltaY / this._cropVideoRect.height) * 100
+    const deltaXPct = (deltaX / videoRect.width) * 100
+    const deltaYPct = (deltaY / videoRect.height) * 100
 
     const { type, baseX, baseY, baseWidth, baseHeight } = this._cropDrag
     const { aspectRatio } = this.data.cropConfig
@@ -1891,6 +1853,234 @@ Page({
     this._cropDragLastUpdate = 0
     this.setData({ cropDragging: false, cropDragType: '' })
   },
+  
+  // 更新裁剪面板中的文字配置（将编辑页面的坐标转换为裁剪面板的坐标）
+  updateCropTextConfig() {
+    const text = this.data.textConfig
+    if (!text || !text.content) {
+      this.setData({ cropTextConfig: null })
+      return
+    }
+    
+    // 如果编辑页面和裁剪面板的视频显示区域都已计算
+    if (this._textVideoOffsetX !== undefined && this._textVideoOffsetX !== null &&
+        this._cropVideoOffsetX !== undefined && this._cropVideoOffsetX !== null) {
+      
+      // 编辑页面的 textConfig.x/y 是相对于 textVideoArea 的百分比
+      // 需要先转换为相对于视频实际显示区域的百分比
+      const textVideoX = this._textVideoOffsetX
+      const textVideoY = this._textVideoOffsetY
+      const textVideoWidth = this._textVideoWidthPct
+      const textVideoHeight = this._textVideoHeightPct
+      
+      // 文字在视频实际显示区域内的相对位置（0-100%）
+      const relativeX = ((text.x - textVideoX) / textVideoWidth) * 100
+      const relativeY = ((text.y - textVideoY) / textVideoHeight) * 100
+      
+      // 再转换为相对于裁剪面板视频容器的百分比
+      const cropVideoX = this._cropVideoOffsetX
+      const cropVideoY = this._cropVideoOffsetY
+      const cropVideoWidth = this._cropVideoWidthPct
+      const cropVideoHeight = this._cropVideoHeightPct
+      
+      const cropX = cropVideoX + (relativeX / 100) * cropVideoWidth
+      const cropY = cropVideoY + (relativeY / 100) * cropVideoHeight
+      
+      // 计算字号比例（基于实际像素尺寸）
+      let fontSizeScale = 1
+      if (this._textVideoDisplayWidth && this._cropVideoDisplayWidth) {
+        fontSizeScale = this._cropVideoDisplayWidth / this._textVideoDisplayWidth
+      } else if (this._textVideoDisplayHeight && this._cropVideoDisplayHeight) {
+        fontSizeScale = this._cropVideoDisplayHeight / this._textVideoDisplayHeight
+      }
+      
+      this.setData({
+        cropTextConfig: {
+          x: Math.max(0, Math.min(100, cropX)),
+          y: Math.max(0, Math.min(100, cropY)),
+          fontSize: text.fontSizeNum * fontSizeScale,
+          content: text.content,
+          color: text.color,
+          textOpacity: text.textOpacity,
+          strokeColor: text.strokeColor,
+          strokeWidth: text.strokeWidth,
+          _shadowStyle: text._shadowStyle,
+          _bgStyle: text._bgStyle,
+        }
+      })
+    } else {
+      // 如果还没有计算，直接使用原始值（可能不准确，但至少能显示）
+      this.setData({
+        cropTextConfig: {
+          x: text.x,
+          y: text.y,
+          fontSize: text.fontSizeNum,
+          content: text.content,
+          color: text.color,
+          textOpacity: text.textOpacity,
+          strokeColor: text.strokeColor,
+          strokeWidth: text.strokeWidth,
+          _shadowStyle: text._shadowStyle,
+          _bgStyle: text._bgStyle,
+        }
+      })
+    }
+  },
+  
+  // 裁剪面板中文字拖动开始
+  onCropTextDragStart(e) {
+    const touches = e.touches
+    
+    // 双指捏合：记录初始距离和字号
+    if (touches.length >= 2) {
+      const dist = this._utils.getDistance(touches[0], touches[1])
+      this._cropTextPinch = {
+        active: true,
+        startDist: dist,
+        baseFontSize: this.data.textConfig.fontSizeNum,
+      }
+      this._cropTextDrag = { active: false }
+      this.setData({ cropTextDragging: true })
+      return
+    }
+    
+    // 单指拖动
+    const touch = touches[0]
+    
+    // 先获取容器尺寸
+    const query = wx.createSelectorQuery().in(this)
+    query.select('#cropVideoWrapper').boundingClientRect()
+    query.exec((res) => {
+      if (res && res[0]) {
+        const container = res[0]
+        this._cropTextDrag = {
+          active: true,
+          startX: touch.clientX,
+          startY: touch.clientY,
+          baseX: this.data.cropTextConfig ? this.data.cropTextConfig.x : 50,
+          baseY: this.data.cropTextConfig ? this.data.cropTextConfig.y : 50,
+          containerWidth: container.width,
+          containerHeight: container.height,
+        }
+        this._cropTextPinch = { active: false }
+        this.setData({ cropTextDragging: true })
+      } else {
+        this._cropTextDrag = {
+          active: true,
+          startX: touch.clientX,
+          startY: touch.clientY,
+          baseX: this.data.cropTextConfig ? this.data.cropTextConfig.x : 50,
+          baseY: this.data.cropTextConfig ? this.data.cropTextConfig.y : 50,
+        }
+        this._cropTextPinch = { active: false }
+        this.setData({ cropTextDragging: true })
+      }
+    })
+  },
+  
+  // 裁剪面板中文字拖动中
+  onCropTextDragMove(e) {
+    const touches = e.touches
+    
+    // 双指捏合：缩放字号
+    if (touches.length >= 2 && this._cropTextPinch && this._cropTextPinch.active) {
+      const dist = this._utils.getDistance(touches[0], touches[1])
+      const scale = dist / this._cropTextPinch.startDist
+      let newSize = Math.round(this._cropTextPinch.baseFontSize * scale)
+      // 限制字号范围 12-120
+      newSize = Math.max(12, Math.min(120, newSize))
+      this.setData({ 'textConfig.fontSizeNum': newSize }, () => {
+        // 更新裁剪面板中的文字配置
+        this.updateCropTextConfig()
+      })
+      return
+    }
+    
+    // 单指拖动
+    if (!this._cropTextDrag || !this._cropTextDrag.active) return
+    if (!this._cropTextDrag.containerWidth || !this._cropTextDrag.containerHeight) {
+      return
+    }
+
+    const touch = touches[0]
+    const deltaX = touch.clientX - this._cropTextDrag.startX
+    const deltaY = touch.clientY - this._cropTextDrag.startY
+
+    // 使用已保存的容器尺寸
+    const containerWidth = this._cropTextDrag.containerWidth
+    const containerHeight = this._cropTextDrag.containerHeight
+    
+    // 转换为相对于容器的百分比
+    const deltaXPct = (deltaX / containerWidth) * 100
+    const deltaYPct = (deltaY / containerHeight) * 100
+
+    let newX = this._cropTextDrag.baseX + deltaXPct
+    let newY = this._cropTextDrag.baseY + deltaYPct
+
+    // 限制范围在视频实际显示区域内（考虑偏移）
+    if (this._cropVideoOffsetX !== undefined && this._cropVideoOffsetX !== null) {
+      const minX = this._cropVideoOffsetX
+      const minY = this._cropVideoOffsetY
+      const maxX = this._cropVideoOffsetX + this._cropVideoWidthPct
+      const maxY = this._cropVideoOffsetY + this._cropVideoHeightPct
+      
+      newX = Math.max(minX + 2, Math.min(maxX - 2, newX))
+      newY = Math.max(minY + 2, Math.min(maxY - 2, newY))
+    } else {
+      // 回退方案：限制范围 5% - 95%
+      newX = Math.max(5, Math.min(95, newX))
+      newY = Math.max(5, Math.min(95, newY))
+    }
+
+    // 更新裁剪面板中的文字位置
+    if (this.data.cropTextConfig) {
+      this.setData({
+        'cropTextConfig.x': Math.round(newX * 10) / 10,
+        'cropTextConfig.y': Math.round(newY * 10) / 10,
+      })
+    }
+    
+    // 同时更新原始 textConfig（需要反向转换）
+    if (this._textVideoOffsetX !== undefined && this._textVideoOffsetX !== null &&
+        this._cropVideoOffsetX !== undefined && this._cropVideoOffsetX !== null) {
+      // 将裁剪面板的坐标转换为编辑页面的坐标
+      const cropVideoX = this._cropVideoOffsetX
+      const cropVideoY = this._cropVideoOffsetY
+      const cropVideoWidth = this._cropVideoWidthPct
+      const cropVideoHeight = this._cropVideoHeightPct
+      
+      // 文字在视频实际显示区域内的相对位置（0-100%）
+      const relativeX = ((newX - cropVideoX) / cropVideoWidth) * 100
+      const relativeY = ((newY - cropVideoY) / cropVideoHeight) * 100
+      
+      // 转换为编辑页面的坐标
+      const textVideoX = this._textVideoOffsetX
+      const textVideoY = this._textVideoOffsetY
+      const textVideoWidth = this._textVideoWidthPct
+      const textVideoHeight = this._textVideoHeightPct
+      
+      const textX = textVideoX + (relativeX / 100) * textVideoWidth
+      const textY = textVideoY + (relativeY / 100) * textVideoHeight
+      
+      this.setData({
+        'textConfig.x': Math.round(textX * 10) / 10,
+        'textConfig.y': Math.round(textY * 10) / 10,
+      })
+    }
+  },
+  
+  // 裁剪面板中文字拖动结束
+  onCropTextDragEnd() {
+    if (this._cropTextDrag) {
+      this._cropTextDrag.active = false
+    }
+    if (this._cropTextPinch) {
+      this._cropTextPinch.active = false
+    }
+    this.setData({ cropTextDragging: false })
+    // 更新主页预览配置
+    this.updateTextPreviewConfig()
+  },
 
   onStartChange(e) {
     const durationS = this.data.durationS || 0
@@ -1918,256 +2108,27 @@ Page({
 
     this.setData({ startS, endS })
     this.updateUiByRange()
-  },
 
-  normalizeRange(startS, endS) {
-    const durationS = this.data.durationS || 0
-    let s = toFixed1(Number(startS || 0))
-    let e = toFixed1(Number(endS || 0))
-
-    s = clamp(s, 0, durationS)
-    e = clamp(e, 0, durationS)
-
-    if (e < s) e = s
-    if (e - s < MIN_RANGE_S) e = toFixed1(s + MIN_RANGE_S)
-    if (e - s > MAX_CLIP_DURATION_S) e = toFixed1(s + MAX_CLIP_DURATION_S)
-    e = clamp(e, 0, durationS)
-    if (e - s < MIN_RANGE_S) s = toFixed1(e - MIN_RANGE_S)
-    s = clamp(s, 0, durationS)
-    return { startS: s, endS: e }
-  },
-
-  updateWindowByRange(startS, endS) {
-    const durationS = this.data.durationS || 0
-    const windowDurationS = Math.min(durationS, MAX_CLIP_DURATION_S)
-    if (durationS <= 0 || windowDurationS <= 0) {
-      if (this.data.windowDurationS !== 0 || this.data.windowStartS !== 0) {
-        this.setData({ windowStartS: 0, windowDurationS: 0, ticks: [] })
-      }
-      return
+    // 同步主时间线截取高亮区域
+    if (this._mainTimeline && this._mainTimeline.updateRangeFromPage) {
+      this._mainTimeline.updateRangeFromPage()
     }
-
-    const maxWindowStart = Math.max(0, toFixed1(durationS - windowDurationS))
-    let windowStartS = toFixed1(this.data.windowStartS || 0)
-    windowStartS = clamp(windowStartS, 0, maxWindowStart)
-
-    const s = Number(startS || 0)
-    const e = Number(endS || 0)
-    if (s < windowStartS) {
-      windowStartS = toFixed1(s)
-    } else if (e > windowStartS + windowDurationS) {
-      windowStartS = toFixed1(e - windowDurationS)
-    }
-    windowStartS = clamp(windowStartS, 0, maxWindowStart)
-
-    if (windowStartS !== (this.data.windowStartS || 0) || windowDurationS !== (this.data.windowDurationS || 0)) {
-      this.setData({
-        windowStartS,
-        windowDurationS,
-        ticks: buildTicks(windowStartS, windowDurationS),
-      })
-    }
-  },
-
-  onDragStart(e) {
-    if (!this.data.videoPath || !(this.data.durationS > 0)) return
-    if (!this._rulerWidthPx) this.refreshRulerRect()
-
-    const type = e?.currentTarget?.dataset?.type || 'range'
-    const touch = (e.touches && e.touches[0]) || null
-    if (!touch) return
-
-    this._drag = {
-      active: true,
-      type,
-      startX: touch.clientX,
-      baseStartS: this.data.startS,
-      baseEndS: this.data.endS,
-    }
-    this.setData({ dragActiveType: type })
-
-    // 如果正在播放片段，停止
-    if (this.data.segmentPlaying) {
-      this.setData({ segmentPlaying: false })
-    }
-
-    // 拖动时暂停视频
-    if (this._videoCtx) {
-      this._videoCtx.pause()
-    }
-  },
-
-  onDragMove(e) {
-    if (!this._drag || !this._drag.active) return
-    const touch = (e.touches && e.touches[0]) || null
-    if (!touch) return
-
-    const durationS = this.data.durationS || 0
-    const windowDurationS = this.data.windowDurationS || Math.min(durationS, MAX_CLIP_DURATION_S)
-    const widthPx = this._rulerWidthPx || 0
-    if (durationS <= 0 || windowDurationS <= 0 || widthPx <= 0) return
-
-    const dx = touch.clientX - this._drag.startX
-    const deltaS = toFixed1((dx / widthPx) * windowDurationS)
-
-    let startS = this._drag.baseStartS
-    let endS = this._drag.baseEndS
-
-    if (this._drag.type === 'left') {
-      startS = toFixed1(this._drag.baseStartS + deltaS)
-      // 保持 end 不动，但需要满足 maxLen
-      if (endS - startS > MAX_CLIP_DURATION_S) startS = toFixed1(endS - MAX_CLIP_DURATION_S)
-      if (startS > endS - MIN_RANGE_S) startS = toFixed1(endS - MIN_RANGE_S)
-    } else if (this._drag.type === 'right') {
-      endS = toFixed1(this._drag.baseEndS + deltaS)
-      if (endS - startS > MAX_CLIP_DURATION_S) endS = toFixed1(startS + MAX_CLIP_DURATION_S)
-      if (endS < startS + MIN_RANGE_S) endS = toFixed1(startS + MIN_RANGE_S)
-    } else {
-      // range：整体平移，保持长度不变
-      const len = toFixed1(this._drag.baseEndS - this._drag.baseStartS)
-      startS = toFixed1(this._drag.baseStartS + deltaS)
-      endS = toFixed1(startS + len)
-
-      // 边界回弹
-      if (startS < 0) {
-        startS = 0
-        endS = toFixed1(startS + len)
-      }
-      if (endS > durationS) {
-        endS = durationS
-        startS = toFixed1(endS - len)
-      }
-    }
-
-    const normalized = this.normalizeRange(startS, endS)
-    this.setData({ startS: normalized.startS, endS: normalized.endS })
-    this.updateWindowByRange(normalized.startS, normalized.endS)
-    this.updateUiByRange()
-
-  },
-
-  onDragEnd() {
-    if (!this._drag || !this._drag.active) return
-    this._drag.active = false
-    this.updateWindowByRange(this.data.startS, this.data.endS)
-    this.setData({ dragActiveType: '' })
-    
-    // 如果正在播放片段，停止
-    if (this.data.segmentPlaying) {
-      this.setData({ segmentPlaying: false })
-    }
-    
-    // 拖拽结束后暂停并跳转到选中片段的起点
-    if (this._videoCtx) {
-      this._videoCtx.pause()
-    }
-    this.seekTo(this.data.startS || 0)
   },
 
   shiftRangeByDelta(deltaS) {
-    const durationS = this.data.durationS || 0
-    const baseStartS = this.data.startS || 0
-    const baseEndS = this.data.endS || 0
-    const len = toFixed1(baseEndS - baseStartS)
-
-    let startS = toFixed1(baseStartS + deltaS)
-    let endS = toFixed1(startS + len)
-
-    if (startS < 0) {
-      startS = 0
-      endS = toFixed1(startS + len)
-    }
-    if (endS > durationS) {
-      endS = durationS
-      startS = toFixed1(endS - len)
-    }
-
-    const normalized = this.normalizeRange(startS, endS)
-    return normalized
+    return this._timelineHandler.shiftRangeByDelta(deltaS)
   },
 
   onScrubStart(e) {
-    if (!this.data.videoPath || !(this.data.durationS > 0)) return
-    if (!this._rulerWidthPx) this.refreshRulerRect()
-    const touch = (e.touches && e.touches[0]) || null
-    if (!touch) return
-
-    // 拖动刻度时，先暂停视频
-    if (this._videoCtx) {
-      this._videoCtx.pause()
-    }
-    if (this.data.segmentPlaying) {
-      this.setData({ segmentPlaying: false })
-    }
-
-    this._scrub = {
-      active: true,
-      startX: touch.clientX,
-      baseWindowStartS: this.data.windowStartS || 0,
-      baseStartS: this.data.startS || 0,
-      baseEndS: this.data.endS || 0,
-    }
-    this.setData({ timelineDragging: true })
-    this.previewAt(this.data.startS || 0)
+    // 底部旧尺子已删除，此函数不再使用，保留空实现避免事件残留
   },
 
   onScrubMove(e) {
-    if (!this._scrub || !this._scrub.active) return
-    const touch = (e.touches && e.touches[0]) || null
-    if (!touch) return
-
-    const durationS = this.data.durationS || 0
-    const windowDurationS = this.data.windowDurationS || Math.min(durationS, MAX_CLIP_DURATION_S)
-    const widthPx = this._rulerWidthPx || 0
-    if (durationS <= 0 || windowDurationS <= 0 || widthPx <= 0) return
-
-    // 右滑：回到更早时间；左滑：滚到更晚时间（更符合“内容随手指移动”的直觉）
-    const dx = touch.clientX - this._scrub.startX
-    const deltaS = toFixed1((-dx / widthPx) * windowDurationS * 2) // 0.1s 精度，滚动速度 x2
-
-    const maxWindowStart = Math.max(0, toFixed1(durationS - windowDurationS))
-    const windowStartS = clamp(toFixed1(this._scrub.baseWindowStartS + deltaS), 0, maxWindowStart)
-
-    // 同步平移选区（保持长度不变）
-    const shift = toFixed1(windowStartS - this._scrub.baseWindowStartS)
-    const normalized = (() => {
-      // 基于 baseStart/baseEnd 平移（而不是每帧累加，避免漂移）
-      const baseLen = toFixed1(this._scrub.baseEndS - this._scrub.baseStartS)
-      let s = toFixed1(this._scrub.baseStartS + shift)
-      let e = toFixed1(s + baseLen)
-      if (s < 0) {
-        s = 0
-        e = toFixed1(s + baseLen)
-      }
-      if (e > durationS) {
-        e = durationS
-        s = toFixed1(e - baseLen)
-      }
-      return this.normalizeRange(s, e)
-    })()
-
-    this.setData({
-      windowStartS,
-      startS: normalized.startS,
-      endS: normalized.endS,
-      ticks: buildTicks(windowStartS, windowDurationS),
-    })
-    this.updateUiByRange()
-    // 注意：滚动过程中不预览（避免闪烁），只在松手时预览
+    // 底部旧尺子已删除，此函数不再使用，保留空实现避免事件残留
   },
 
   onScrubEnd() {
-    if (!this._scrub || !this._scrub.active) return
-    this._scrub.active = false
-    this.setData({ timelineDragging: false })
-    
-    // 如果正在播放片段，停止
-    if (this.data.segmentPlaying) {
-      this.setData({ segmentPlaying: false })
-    }
-    
-    // 松手后跳转到选中片段的起点
-    this.seekTo(this.data.startS || 0)
+    // 底部旧尺子已删除，此函数不再使用，保留空实现避免事件残留
   },
 
   onResolutionPick(e) {
@@ -2176,6 +2137,12 @@ Page({
 
   onFpsPick(e) {
     this.setData({ fpsIndex: Number(e.detail.value || 0) })
+  },
+  
+  // 导出功能（就是转换功能）
+  onExport() {
+    // 直接调用转换功能
+    this.onConvert()
   },
 
   updateUiByRange() {
@@ -2258,6 +2225,7 @@ Page({
           shadowOpacity: tc.shadowOpacity,
           bgColor: tc.bgColor,
           bgOpacity: tc.bgOpacity,
+          animation: tc.animation || '', // 动画类型
         }
       }
 
@@ -2310,8 +2278,12 @@ Page({
         },
       })
       wx.hideLoading()
-      this.setData({ outPath, processing: false, progressText: '' })
-      wx.showToast({ title: '转换成功', icon: 'success' })
+      this.setData({ 
+        outPath, 
+        processing: false, 
+        progressText: '',
+        showGifPreview: true  // 显示预览弹框
+      })
     } catch (e) {
       wx.hideLoading()
       this.setData({ processing: false, progressText: '' })
@@ -2335,6 +2307,8 @@ Page({
         })
       })
       wx.showToast({ title: '已保存到相册', icon: 'success' })
+      // 保存成功后关闭预览弹框
+      this.setData({ showGifPreview: false })
     } catch (e) {
       wx.showModal({
         title: '保存失败',
@@ -2343,6 +2317,184 @@ Page({
       })
     }
   },
+
+  // 关闭GIF预览弹框
+  onCloseGifPreview() {
+    this.setData({ showGifPreview: false })
+  },
+
+  /**
+   * 主时间线触摸事件封装到模块中
+   */
+  onMainTimelineTouchStart(e) {
+    if (this._mainTimeline && this._mainTimeline.onTouchStart) {
+      this._mainTimeline.onTouchStart(e)
+    }
+  },
+
+  onMainTimelineTouchMove(e) {
+    if (this._mainTimeline && this._mainTimeline.onTouchMove) {
+      this._mainTimeline.onTouchMove(e)
+    }
+  },
+
+  onMainTimelineTouchEnd() {
+    if (this._mainTimeline && this._mainTimeline.onTouchEnd) {
+      this._mainTimeline.onTouchEnd()
+    }
+  },
+
+  // 主时间线上截取高亮区域整体平移截取范围
+  onMainRangeTouchStart(e) {
+    if (!this.data.videoPath || !(this.data.durationS > 0)) return
+    const touch = e.touches && e.touches[0]
+    if (!touch) return
+    this._mainRangeDrag = {
+      active: true,
+      startX: touch.clientX,
+      baseStartS: this.data.startS || 0,
+      baseEndS: this.data.endS || 0,
+    }
+  },
+
+  onMainRangeTouchMove(e) {
+    if (!this._mainRangeDrag || !this._mainRangeDrag.active) return
+    const touch = e.touches && e.touches[0]
+    if (!touch) return
+
+    const pps = (this.data.mainTimeline && this.data.mainTimeline.pixelsPerSecond) || 1
+    const dx = touch.clientX - this._mainRangeDrag.startX
+    const deltaS = toFixed1(dx / pps)
+
+    const durationS = this.data.durationS || 0
+    const baseStart = this._mainRangeDrag.baseStartS
+    const baseEnd = this._mainRangeDrag.baseEndS
+    const len = toFixed1(baseEnd - baseStart)
+
+    let newStart = toFixed1(baseStart + deltaS)
+    let newEnd = toFixed1(baseEnd + deltaS)
+
+    if (newStart < 0) {
+      newStart = 0
+      newEnd = toFixed1(newStart + len)
+    }
+    if (newEnd > durationS) {
+      newEnd = durationS
+      newStart = toFixed1(newEnd - len)
+    }
+
+    const normalized = this._timelineHandler.normalizeRange(newStart, newEnd)
+    this.setData({ startS: normalized.startS, endS: normalized.endS })
+    this._timelineHandler.updateWindowByRange(normalized.startS, normalized.endS)
+    this.updateUiByRange()
+
+    // 同步主时间线截取高亮区域
+    if (this._mainTimeline && this._mainTimeline.updateRangeFromPage) {
+      this._mainTimeline.updateRangeFromPage()
+    }
+  },
+
+  onMainRangeTouchEnd() {
+    if (this._mainRangeDrag) {
+      this._mainRangeDrag.active = false
+    }
+  },
+
+  // 主时间线左右手柄：调整截取范围的起止时间
+  onMainHandleTouchStart(e) {
+    if (!this.data.videoPath || !(this.data.durationS > 0)) return
+    const touch = e.touches && e.touches[0]
+    if (!touch) return
+    const type = (e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.type) || 'left'
+    this._mainHandleDrag = {
+      active: true,
+      type,
+      startX: touch.clientX,
+      baseStartS: this.data.startS || 0,
+      baseEndS: this.data.endS || 0,
+    }
+    // 拖动时暂停视频、停止片段播放
+    if (this._videoCtx) {
+      this._videoCtx.pause()
+    }
+    if (this.data.segmentPlaying) {
+      this.setData({ segmentPlaying: false })
+    }
+  },
+
+  onMainHandleTouchMove(e) {
+    if (!this._mainHandleDrag || !this._mainHandleDrag.active) return
+    const touch = e.touches && e.touches[0]
+    if (!touch) return
+
+    const pps = (this.data.mainTimeline && this.data.mainTimeline.pixelsPerSecond) || 1
+    const dx = touch.clientX - this._mainHandleDrag.startX
+    const deltaS = toFixed1(dx / pps)
+
+    const durationS = this.data.durationS || 0
+    const baseStart = this._mainHandleDrag.baseStartS
+    const baseEnd = this._mainHandleDrag.baseEndS
+    let newStart = baseStart
+    let newEnd = baseEnd
+
+    if (this._mainHandleDrag.type === 'left') {
+      newStart = toFixed1(baseStart + deltaS)
+      // 左手柄拖动：右侧保持基准 end，交给 normalizeRange 做约束
+    } else if (this._mainHandleDrag.type === 'right') {
+      newEnd = toFixed1(baseEnd + deltaS)
+      // 右手柄拖动：左侧保持基准 start
+    }
+
+    // 基本边界保证
+    newStart = clamp(newStart, 0, durationS)
+    newEnd = clamp(newEnd, 0, durationS)
+
+    const normalized = this._timelineHandler.normalizeRange(newStart, newEnd)
+    this.setData({ startS: normalized.startS, endS: normalized.endS })
+    this._timelineHandler.updateWindowByRange(normalized.startS, normalized.endS)
+    this.updateUiByRange()
+
+    // 同步主时间线截取高亮区域
+    if (this._mainTimeline && this._mainTimeline.updateRangeFromPage) {
+      this._mainTimeline.updateRangeFromPage()
+    }
+  },
+
+  onMainHandleTouchEnd() {
+    if (this._mainHandleDrag) {
+      this._mainHandleDrag.active = false
+    }
+  },
+
+  // 左侧边缘触摸拦截（防止华为手机系统返回手势误触）
+  onEdgeTouchStart(e) {
+    const touch = e.touches && e.touches[0]
+    if (touch) {
+      this._edgeTouch = {
+        startX: touch.clientX,
+        startY: touch.clientY,
+        startTime: Date.now(),
+      }
+    }
+  },
+
+  onEdgeTouchMove(e) {
+    // 阻止默认行为，防止系统返回手势
+    const touch = e.touches && e.touches[0]
+    if (touch && this._edgeTouch.startX !== undefined) {
+      const deltaX = touch.clientX - this._edgeTouch.startX
+      const deltaY = Math.abs(touch.clientY - this._edgeTouch.startY)
+      
+      // 如果是明显的向右滑动（返回手势），且垂直移动不大，则阻止
+      if (deltaX > 10 && deltaY < 50) {
+        // 阻止事件传播
+        e.stopPropagation()
+      }
+    }
+  },
+
+  onEdgeTouchEnd(e) {
+    // 重置触摸状态
+    this._edgeTouch = { startX: 0, startY: 0, startTime: 0 }
+  },
 })
-
-
