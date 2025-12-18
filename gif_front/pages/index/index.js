@@ -57,7 +57,7 @@ Page({
     tools: TOOLS,
   },
 
-  onTapTool(e) {
+  async onTapTool(e) {
     const { url, key } = e.currentTarget.dataset
     if (!url) {
       wx.showToast({
@@ -66,7 +66,39 @@ Page({
       })
       return
     }
-    wx.navigateTo({ url })
+    
+    // 如果是视频转GIF，先选择视频
+    if (key === 'VIDEO_TO_GIF') {
+      try {
+        const { chooseSingleVideo } = require('../../utils/media')
+        wx.showLoading({ title: '选择视频中...', mask: true })
+        const res = await chooseSingleVideo()
+        wx.hideLoading()
+        
+        // 将视频路径保存到全局数据
+        const app = getApp()
+        if (!app.globalData) {
+          app.globalData = {}
+        }
+        app.globalData.selectedVideoPath = res.tempFilePath
+        app.globalData.selectedVideoWidth = res.width
+        app.globalData.selectedVideoHeight = res.height
+        app.globalData.selectedVideoDuration = res.duration
+        
+        // 跳转到视频转GIF页面
+        wx.navigateTo({ url })
+      } catch (err) {
+        wx.hideLoading()
+        if (err.errMsg && !err.errMsg.includes('cancel')) {
+          wx.showToast({
+            title: err.errMsg || '选择视频失败',
+            icon: 'none',
+          })
+        }
+      }
+    } else {
+      wx.navigateTo({ url })
+    }
   },
 
   onTapLogs() {

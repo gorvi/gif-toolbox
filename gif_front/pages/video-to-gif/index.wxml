@@ -56,7 +56,7 @@
           <!-- 文字预览/编辑（直接在首页） -->
           <view 
             class="video-text-preview {{textActiveTab && textActiveTab !== 'none' ? 'video-text-editing' : ''}}"
-            wx:if="{...(textConfig.content && textActiveTab && textActiveTab !== 'none') || (textPreviewConfig && textPreviewConfig.content)}}"
+            wx:if="{{(textConfig.content && textActiveTab && textActiveTab !== 'none') || (textPreviewConfig && textPreviewConfig.content)}}"
             style="left: {{textActiveTab && textActiveTab !== 'none' && textConfig.content ? textConfig.x : (textPreviewConfig ? textPreviewConfig.x : 50)}}%; top: {{textActiveTab && textActiveTab !== 'none' && textConfig.content ? textConfig.y : (textPreviewConfig ? textPreviewConfig.y : 50)}}%;"
           >
             <view 
@@ -531,3 +531,5 @@
 
   <!-- 移除全屏编辑面板，改为首页直接编辑 -->
 </view>
+
+

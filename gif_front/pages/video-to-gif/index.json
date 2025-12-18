@@ -1,6 +1,7 @@
 {
   "navigationBarTitleText": "视频转GIF",
   "navigationStyle": "default",
+  "disableSwipeBack": true,
   "usingComponents": {}
 }
 

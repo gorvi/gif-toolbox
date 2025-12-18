@@ -11,12 +11,13 @@ function choosePixelsPerSecond(totalS) {
   return 10
 }
 
-// 生成主时间线刻度（细分到 0.1 秒）
+  // 生成主时间线刻度（相对整段视频，从 0s 开始）
 function buildMainTicks(totalS, pixelsPerSecond) {
   const ticks = []
   const duration = Math.max(0, Number(totalS || 0))
   if (!duration) return ticks
 
+  // 固定细分到 0.1 秒
   const stepS = 0.1
 
   for (let t = 0; t <= duration + 1e-6; t += stepS) {
@@ -242,14 +243,14 @@ function createMainTimeline(page) {
         const dy = touches[0].clientY - touches[1].clientY
         const dist = Math.sqrt(dx * dx + dy * dy)
         if (!dist || !state.pinch.startDist) return
-        const scale = dist / state.pinch.startDist
+        let scale = dist / state.pinch.startDist
         // 根据主时间线宽度限制缩放范围：
         // - 最小：半屏 4 秒 => 全宽约 8 秒
         // - 最大：半屏 2 秒 => 全宽约 4 秒
         const halfWidth = (state.viewWidthPx || 320) / 2
         const MIN_PX_PER_S = halfWidth / 4   // 半屏 4s
         const MAX_PX_PER_S = halfWidth / 2   // 半屏 2s
-        const newPps = clamp(state.pinch.basePixelsPerSecond * scale, MIN_PX_PER_S, MAX_PX_PER_S)
+        let newPps = clamp(state.pinch.basePixelsPerSecond * scale, MIN_PX_PER_S, MAX_PX_PER_S)
         state.pixelsPerSecond = newPps
         state.ticks = buildMainTicks(state.totalDurationS, state.pixelsPerSecond)
         recomputeLayout()
@@ -333,3 +334,5 @@ function createMainTimeline(page) {
 module.exports = {
   createMainTimeline,
 }
+
+
