@@ -89,7 +89,7 @@ app.post('/v1/upload/video', upload.single('file'), async (req, res) => {
 
 const TextConfigSchema = z.object({
   content: z.string(),
-  fontSizeNum: z.number().min(12).max(200),
+  fontSizeNum: z.number().min(1).max(2000),
   color: z.string(),
   textOpacity: z.number().min(0).max(100),
   x: z.number().min(0).max(100),
@@ -108,12 +108,16 @@ const TextConfigSchema = z.object({
   bgOpacity: z.number().optional(),
 }).passthrough().optional()
 
-const CropConfigSchema = z.object({
-  x: z.number().min(0).max(100),
-  y: z.number().min(0).max(100),
-  width: z.number().min(0).max(100),
-  height: z.number().min(0).max(100),
-}).optional()
+const CropConfigSchema = z
+  .object({
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+    width: z.number().gt(0).max(1),
+    height: z.number().gt(0).max(1),
+  })
+  .refine((v) => v.x + v.width <= 1 + 1e-9, { message: 'cropConfig.x + cropConfig.width 必须 <= 1' })
+  .refine((v) => v.y + v.height <= 1 + 1e-9, { message: 'cropConfig.y + cropConfig.height 必须 <= 1' })
+  .optional()
 
 const CreateVideoToGifSchema = z.object({
   inputFileId: z.string().min(1),

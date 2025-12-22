@@ -7,7 +7,7 @@
 
   <view class="grid">
     <block wx:for="{{tools}}" wx:key="key">
-      <view class="card glass" bindtap="onTapTool" data-key="{{item.key}}" data-url="{{item.url}}">
+      <view class="card glass {{!item.url ? 'card-disabled' : ''}}" bindtap="onTapTool" data-key="{{item.key}}" data-url="{{item.url}}" data-title="{{item.title}}" data-disabled="{{!item.url}}">
         <view class="card-top">
           <view class="badge">GIF</view>
           <view class="tag" wx:if="{{item.tag}}">{{item.tag}}</view>

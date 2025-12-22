@@ -11,7 +11,58 @@ const { toFixed1 } = require('./utils')
  * @returns {Object} 视频控制方法
  */
 function createVideoController(page) {
+  function clearSegmentStopTimer() {
+    if (page._segmentStopTimer) {
+      clearTimeout(page._segmentStopTimer)
+      page._segmentStopTimer = null
+    }
+  }
+
+  function stopSegmentAt(endS) {
+    clearSegmentStopTimer()
+    const t = toFixed1(Math.max(0, Number(endS || 0)))
+    if (page._videoCtx) {
+      page._videoCtx.pause()
+      page._videoCtx.seek(t)
+    }
+    page.setData({ segmentPlaying: false, segmentEndS: 0, currentS: t })
+
+    if (page._mainTimeline && typeof page._mainTimeline.onVideoTimeUpdate === 'function') {
+      page._mainTimeline.onVideoTimeUpdate(t)
+    }
+    if (typeof page.updateClockText === 'function') {
+      page.updateClockText()
+    }
+    if (typeof page.updateUiByRange === 'function') {
+      page.updateUiByRange()
+    }
+  }
+
   return {
+    toggleFull() {
+      if (!page.data.videoPath) {
+        wx.showToast({ title: '请先选择视频', icon: 'none' })
+        return
+      }
+
+      if (page.data.segmentPlaying) {
+        clearSegmentStopTimer()
+        page.setData({ segmentPlaying: false, segmentEndS: 0 })
+      }
+
+      if (!page._videoCtx) {
+        page._videoCtx = wx.createVideoContext('videoPlayer', page)
+      }
+
+      if (page.data.videoPlaying) {
+        if (page._videoCtx) page._videoCtx.pause()
+        page.setData({ videoPlaying: false })
+        return
+      }
+
+      this.playFull()
+    },
+
     /**
      * 跳转到指定时间点
      */
@@ -43,7 +94,8 @@ function createVideoController(page) {
         page._videoCtx.pause()
         page._videoCtx.seek(t)
       }
-      page.setData({ currentS: t, segmentPlaying: false })
+      clearSegmentStopTimer()
+      page.setData({ currentS: t, segmentPlaying: false, segmentEndS: 0 })
     },
 
     /**
@@ -57,7 +109,8 @@ function createVideoController(page) {
       
       // 停止片段播放状态
       if (page.data.segmentPlaying) {
-        page.setData({ segmentPlaying: false })
+        clearSegmentStopTimer()
+        page.setData({ segmentPlaying: false, segmentEndS: 0 })
       }
 
       // 恢复主时间线跟随播放
@@ -105,10 +158,11 @@ function createVideoController(page) {
 
       // 如果正在播放片段，停止
       if (page.data.segmentPlaying) {
+        clearSegmentStopTimer()
         if (page._videoCtx) {
           page._videoCtx.pause()
         }
-        page.setData({ segmentPlaying: false })
+        page.setData({ segmentPlaying: false, segmentEndS: 0 })
         return
       }
 
@@ -117,6 +171,8 @@ function createVideoController(page) {
       if (!page._videoCtx) {
         page._videoCtx = wx.createVideoContext('videoPlayer', page)
       }
+
+      clearSegmentStopTimer()
 
       // 设置片段播放状态
       page.setData({
@@ -142,6 +198,12 @@ function createVideoController(page) {
           }
         }, 200)
       }
+
+      const durationMs = Math.max(0, Number(endS - startS)) * 1000
+      page._segmentStopTimer = setTimeout(() => {
+        if (!page.data.segmentPlaying) return
+        stopSegmentAt(endS)
+      }, durationMs + 120)
     },
   }
 }
@@ -149,4 +211,3 @@ function createVideoController(page) {
 module.exports = {
   createVideoController,
 }
-

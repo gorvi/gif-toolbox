@@ -3,8 +3,6 @@
  * 处理视频裁剪相关的所有功能
  */
 
-const { clamp } = require('./utils')
-
 /**
  * 创建裁剪处理器
  * @param {Object} page - 页面实例
@@ -19,79 +17,52 @@ function createCropHandler(page) {
       const config = { ...page.data.cropConfig }
       let changed = false
 
-      // 判断是在文字编辑面板还是独立裁剪面板
-      const isInTextPanel = page.data.showTextPanel && page.data.textActiveTab === 'crop'
-      const offsetX = isInTextPanel ? page._textVideoOffsetX : page._cropVideoOffsetX
-      const offsetY = isInTextPanel ? page._textVideoOffsetY : page._cropVideoOffsetY
-      const widthPct = isInTextPanel ? page._textVideoWidthPct : page._cropVideoWidthPct
-      const heightPct = isInTextPanel ? page._textVideoHeightPct : page._cropVideoHeightPct
+      const toNum = (v, fallback) => {
+        const n = Number(v)
+        return Number.isFinite(n) ? n : fallback
+      }
+      const clampPct = (n) => Math.max(0, Math.min(100, n))
 
-      // 如果已获取视频的实际显示区域，限制裁剪框在视频区域内
-      if (offsetX !== undefined && offsetX !== null) {
-        const videoMinX = offsetX
-        const videoMinY = offsetY
-        const videoMaxX = offsetX + widthPct
-        const videoMaxY = offsetY + heightPct
+      const x = toNum(config.x, 0)
+      const y = toNum(config.y, 0)
+      const w = toNum(config.width, 100)
+      const h = toNum(config.height, 100)
 
-        // 限制位置在视频区域内
-        if (config.x < videoMinX) {
-          config.x = videoMinX
-          changed = true
-        }
-        if (config.y < videoMinY) {
-          config.y = videoMinY
-          changed = true
-        }
-        
-        // 限制尺寸不超出视频区域
-        if (config.x + config.width > videoMaxX) {
-          config.width = videoMaxX - config.x
-          changed = true
-        }
-        if (config.y + config.height > videoMaxY) {
-          config.height = videoMaxY - config.y
-          changed = true
-        }
+      let minX = 0
+      let minY = 0
+      let maxX = 100
+      let maxY = 100
+      if (page._mainVideoOffsetX !== undefined && page._mainVideoOffsetX !== null) {
+        minX = Number(page._mainVideoOffsetX) || 0
+        minY = Number(page._mainVideoOffsetY) || 0
+        maxX = minX + (Number(page._mainVideoWidthPct) || 0)
+        maxY = minY + (Number(page._mainVideoHeightPct) || 0)
+        minX = clampPct(minX)
+        minY = clampPct(minY)
+        maxX = clampPct(maxX)
+        maxY = clampPct(maxY)
+      }
 
-        // 确保最小尺寸
-        if (config.width < 10) {
-          config.width = 10
-          if (config.x + config.width > videoMaxX) config.x = videoMaxX - config.width
-          changed = true
-        }
-        if (config.height < 10) {
-          config.height = 10
-          if (config.y + config.height > videoMaxY) config.y = videoMaxY - config.height
-          changed = true
-        }
-      } else {
-        // 如果还没有获取视频区域，使用 wrapper 的 0-100% 限制
-        if (config.x < 0) {
-          config.x = 0
-          changed = true
-        }
-        if (config.y < 0) {
-          config.y = 0
-          changed = true
-        }
-        if (config.x + config.width > 100) {
-          config.width = 100 - config.x
-          changed = true
-        }
-        if (config.y + config.height > 100) {
-          config.height = 100 - config.y
-          changed = true
-        }
-        if (config.width < 10) {
-          config.width = 10
-          if (config.x + config.width > 100) config.x = 100 - config.width
-          changed = true
-        }
-        if (config.height < 10) {
-          config.height = 10
-          if (config.y + config.height > 100) config.y = 100 - config.height
-          changed = true
-        }
+      let nx = clampPct(x)
+      let ny = clampPct(y)
+      let nw = clampPct(w)
+      let nh = clampPct(h)
+
+      const minSize = 10
+      if (nw < minSize) nw = minSize
+      if (nh < minSize) nh = minSize
+      nw = Math.min(nw, Math.max(minSize, maxX - minX))
+      nh = Math.min(nh, Math.max(minSize, maxY - minY))
+
+      nx = Math.max(minX, Math.min(maxX - nw, nx))
+      ny = Math.max(minY, Math.min(maxY - nh, ny))
+
+      if (nx !== x || ny !== y || nw !== w || nh !== h) {
+        config.x = nx
+        config.y = ny
+        config.width = nw
+        config.height = nh
+        changed = true
       }
 
       if (changed) {
@@ -104,4 +75,3 @@ function createCropHandler(page) {
 module.exports = {
   createCropHandler,
 }
-

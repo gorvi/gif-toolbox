@@ -20,13 +20,14 @@ export type TextConfig = {
   bgColor?: string
   bgOpacity?: number
   animation?: string  // 动画类型：'', 'fade', 'slide', 'bounce', 'pulse', 'shake', 'zoom'
+  animationSpeed?: number // 动画速度：0.5-2.0
 }
 
 export type CropConfig = {
-  x: number      // 裁剪区域X位置（百分比 0-100）
-  y: number      // 裁剪区域Y位置（百分比 0-100）
-  width: number  // 裁剪区域宽度（百分比 0-100）
-  height: number // 裁剪区域高度（百分比 0-100）
+  x: number      // 裁剪区域X位置（0-1）
+  y: number      // 裁剪区域Y位置（0-1）
+  width: number  // 裁剪区域宽度（0-1）
+  height: number // 裁剪区域高度（0-1）
 }
 
 export type VideoToGifOptions = {
@@ -95,8 +96,8 @@ function escapeDrawtext(text: string): string {
 function getChineseFontPath(): string {
   // Windows 字体路径
   const windowsFonts = [
-    'C:/Windows/Fonts/msyh.ttc',      // 微软雅黑
     'C:/Windows/Fonts/msyhbd.ttc',    // 微软雅黑粗体
+    'C:/Windows/Fonts/msyh.ttc',      // 微软雅黑
     'C:/Windows/Fonts/simhei.ttf',    // 黑体
     'C:/Windows/Fonts/simsun.ttc',    // 宋体
   ]
@@ -134,14 +135,14 @@ function getChineseFontPath(): string {
  */
 function buildDrawtextFilter(textConfig: TextConfig, videoWidth: number, duration: number = 1): string {
   const text = escapeDrawtext(textConfig.content)
-  const baseFontSize = Math.round(textConfig.fontSizeNum * (videoWidth / 375)) // 按比例缩放
+  const baseFontSize = Math.max(1, Math.round(textConfig.fontSizeNum))
   const fontColor = colorToFfmpeg(textConfig.color)
   // 透明度：0=不透明(alpha=1), 100=全透明(alpha=0)
   const baseTextAlpha = (100 - (textConfig.textOpacity || 0)) / 100
   
   // 位置计算：百分比转换为表达式
-  const baseXExpr = `(w-text_w)*${textConfig.x}/100`
-  const baseYExpr = `(h-text_h)*${textConfig.y}/100`
+  const baseXExpr = `(w*${textConfig.x}/100-text_w/2)`
+  const baseYExpr = `(h*${textConfig.y}/100-text_h/2)`
   
   // 动画效果计算（使用 FFmpeg 表达式，t 是当前时间）
   const animation = textConfig.animation || ''
@@ -151,8 +152,8 @@ function buildDrawtextFilter(textConfig: TextConfig, videoWidth: number, duratio
   let yExpr = baseYExpr
   
   if (animation && duration > 0) {
-    // 使用 t 表示当前时间（秒），循环周期为 duration
-    const period = duration // 动画周期（秒）
+    const speed = Math.max(0.5, Math.min(2, Number(textConfig.animationSpeed || 1)))
+    const period = Math.max(0.2, 2 / speed)
     const tMod = `mod(t\\,${period})` // t 对周期取模，实现循环（注意逗号需要转义）
     
     switch (animation) {
@@ -194,7 +195,7 @@ function buildDrawtextFilter(textConfig: TextConfig, videoWidth: number, duratio
     const strokeColor = colorToFfmpeg(textConfig.strokeColor)
     // 透明度：0=不透明(alpha=1), 100=全透明(alpha=0)
     const strokeAlpha = (100 - (textConfig.strokeOpacity || 0)) / 100
-    const strokeSize = Math.max(1, Math.round(textConfig.strokeWidth / 25)) // 描边粗细
+    const strokeSize = Math.max(1, Math.round(textConfig.strokeWidth / 50)) // 描边粗细
     
     // 8个方向：上、下、左、右、左上、右上、左下、右下
     const offsets = [
@@ -234,7 +235,8 @@ function buildDrawtextFilter(textConfig: TextConfig, videoWidth: number, duratio
     const boxColor = colorToFfmpeg(textConfig.bgColor)
     // 透明度：0=不透明(alpha=1), 100=全透明(alpha=0)
     const bgAlpha = (100 - (textConfig.bgOpacity || 0)) / 100
-    mainFilter += `:box=1:boxcolor=${boxColor}@${bgAlpha}:boxborderw=8`
+    const boxBorderW = Math.max(2, Math.round((8 * baseFontSize) / 32))
+    mainFilter += `:box=1:boxcolor=${boxColor}@${bgAlpha}:boxborderw=${boxBorderW}`
   }
   
   filters.push(mainFilter)
@@ -251,23 +253,33 @@ export async function convertVideoToGifWithFfmpeg(opts: VideoToGifOptions): Prom
   
   // 构建裁剪滤镜（如果有）
   let cropFilter = ''
+  let normalizedCropWidth = 1
   if (opts.cropConfig) {
-    const { x, y, width, height } = opts.cropConfig
-    // 裁剪区域使用表达式：基于缩放后的尺寸
-    // x, y, w, h 都是百分比，需要转换为像素
-    // crop=w:h:x:y 其中 w, h, x, y 可以是表达式
-    const cropW = `(iw*${width}/100)`
-    const cropH = `(ih*${height}/100)`
-    const cropX = `(iw*${x}/100)`
-    const cropY = `(ih*${y}/100)`
-    cropFilter = `,crop=${cropW}:${cropH}:${cropX}:${cropY}`
+    const clamp01 = (n: number) => Math.max(0, Math.min(1, n))
+    const raw = opts.cropConfig
+    const x = clamp01(Number(raw.x) || 0)
+    const y = clamp01(Number(raw.y) || 0)
+    let width = clamp01(Number(raw.width) || 0)
+    let height = clamp01(Number(raw.height) || 0)
+    width = Math.min(width, 1 - x)
+    height = Math.min(height, 1 - y)
+
+    const hasCrop = width > 1e-6 && height > 1e-6 && (x > 1e-6 || y > 1e-6 || Math.abs(width - 1) > 1e-6 || Math.abs(height - 1) > 1e-6)
+    if (hasCrop) {
+      normalizedCropWidth = Math.max(1e-6, width)
+      const cropW = `max(2\\,iw*${width})`
+      const cropH = `max(2\\,ih*${height})`
+      const cropX = `(iw*${x})`
+      const cropY = `(ih*${y})`
+      cropFilter = `,crop=${cropW}:${cropH}:${cropX}:${cropY}`
+    }
   }
   
   // 构建文字滤镜（如果有）
   let drawtextFilter = ''
   if (opts.textConfig && opts.textConfig.content) {
     // 如果裁剪了，文字位置需要基于裁剪后的尺寸
-    const textWidth = opts.cropConfig ? opts.width * (opts.cropConfig.width / 100) : opts.width
+    const textWidth = cropFilter ? opts.width * normalizedCropWidth : opts.width
     drawtextFilter = ',' + buildDrawtextFilter(opts.textConfig, textWidth, duration)
   }
 

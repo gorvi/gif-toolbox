@@ -1,23 +1,38 @@
 <view class="page safe-area">
-  <view class="header">
-    <view class="title">图片转GIF</view>
-    <view class="subtitle">端侧合成 · 失败直接提示</view>
-  </view>
-
-  <view class="panel glass-strong">
-    <view class="panel-top">
-      <view class="count">已选 {{images.length}} 张</view>
-      <view class="actions">
-        <view class="action glass" bindtap="onChooseImages">选择</view>
-        <view class="action glass" bindtap="onClearImages" wx:if="{{images.length}}">清空</view>
+  <view class="top-toolbar">
+    <view class="top-toolbar-left">
+      <view class="top-toolbar-count-pill">
+        <text class="top-toolbar-count">已选 {{images.length}} 张</text>
       </view>
     </view>
+    <view class="top-toolbar-right" wx:if="{{images.length}}">
+      <view class="ui-btn ui-btn-ghost" bindtap="onChooseSource">
+        <text class="ui-btn-icon">＋</text>
+        <text class="ui-btn-label">选择</text>
+      </view>
+      <view class="ui-btn ui-btn-ghost" bindtap="onClearImages" wx:if="{{images.length}}">
+        <text class="ui-btn-icon">×</text>
+        <text class="ui-btn-label">清空</text>
+      </view>
+    </view>
+  </view>
 
+  <view class="panel glass-strong preview-panel">
+    <view class="preview">
     <view class="grid" wx:if="{{images.length}}">
       <block wx:for="{{images}}" wx:key="path">
-        <view class="img-item" bindtap="onRemoveImage" data-index="{{index}}">
-          <image class="img" src="{{item.path}}" mode="aspectFill" />
-          <view class="del">×</view>
+        <view
+          class="img-item {{activeImageIndex === index ? 'img-item-active' : ''}} {{dragging && draggingIndex === index ? 'img-item-dragging' : ''}}"
+          style="opacity: {{dragging && draggingIndex === index ? 0.25 : 1}};"
+          bindtap="onSelectImage"
+          catchlongpress="onThumbLongPress"
+          data-index="{{index}}"
+        >
+          <image class="img" src="{{item.previewPath || item.path}}" mode="{{item.fitMode === 'cover' ? 'aspectFill' : 'aspectFit'}}" />
+          <view class="mode-badge" catchtap="onToggleFitMode" data-index="{{index}}">
+            {{((item.cropMode === 'custom' || item.cropConfig) ? '自定义' : (item.fitMode === 'cover' ? '一键裁剪' : '一键留白')) + badgeAspectText}}
+          </view>
+          <view class="del" catchtap="onRemoveImage" data-index="{{index}}">×</view>
         </view>
       </block>
     </view>
@@ -25,24 +40,62 @@
     <view class="empty" wx:else>
       <view class="empty-title">还没有图片</view>
       <view class="empty-desc">建议 5~20 张，越多耗时越长</view>
+      <view class="empty-actions">
+        <view class="ui-btn ui-btn-green" bindtap="onChooseSource">
+          <text class="ui-btn-icon">＋</text>
+          <text class="ui-btn-label">选择图片</text>
+        </view>
+      </view>
+    </view>
     </view>
   </view>
 
   <view class="options glass">
+    <picker mode="selector" range="{{aspectLabels}}" value="{{aspectIndex}}" bindchange="onAspectPick">
+      <view class="opt-row opt-row-tappable">
+        <text class="opt-label">画面比例</text>
+        <text class="opt-value">{{aspectLabels[aspectIndex]}}</text>
+      </view>
+    </picker>
+    <view class="opt-hint">自动：按首张图片；其他：固定输出宽高比</view>
+
+    <view class="divider"></view>
+
+    <view class="opt-row">
+      <text class="opt-label">裁剪</text>
+      <view class="crop-actions">
+        <view class="ui-btn ui-btn-ghost ui-btn-mini" bindtap="onSetAllCover" wx:if="{{images.length}}">
+          <text class="ui-btn-label">一键裁剪填充</text>
+        </view>
+        <view class="ui-btn ui-btn-ghost ui-btn-mini" bindtap="onSetAllContain" wx:if="{{images.length}}">
+          <text class="ui-btn-label">一键留白适配</text>
+        </view>
+        <view class="ui-btn ui-btn-ghost ui-btn-mini" bindtap="onOpenCropModal" wx:if="{{images.length}}">
+          <text class="ui-btn-label">自定义裁剪</text>
+        </view>
+      </view>
+    </view>
+    <view class="opt-hint">先点一张图片选中；点左下角“裁剪/留白”可切换模式</view>
+
+    <view class="divider"></view>
+
     <view class="opt-row">
       <text class="opt-label">帧时长</text>
       <text class="opt-value">{{frameDelayMs}} ms</text>
     </view>
-    <slider min="50" max="500" step="10" value="{{frameDelayMs}}" bindchange="onDelayChange" activeColor="#20c05c" />
+    <view class="opt-hint">越大越慢更柔和；越小越快更跳</view>
+    <slider class="slider" min="50" max="1000" step="10" value="{{frameDelayMs}}" bindchange="onDelayChange" activeColor="#20c05c" />
 
     <view class="divider"></view>
 
     <picker mode="selector" range="{{maxSideLabels}}" value="{{maxSideIndex}}" bindchange="onMaxSidePick">
-      <view class="opt-row">
-        <text class="opt-label">最长边</text>
+      <view class="opt-row opt-row-tappable">
+        <text class="opt-label">导出分辨率</text>
         <text class="opt-value">{{maxSideLabels[maxSideIndex]}}</text>
       </view>
     </picker>
+    <view class="opt-hint">长边上限；短边自动按比例计算，不会拉伸</view>
+    <view class="opt-hint" wx:if="{{exportSizeText}}">{{exportSizeText}}</view>
 
     <view class="divider"></view>
 
@@ -58,7 +111,7 @@
     <view class="divider"></view>
 
     <picker mode="selector" range="{{loopLabels}}" value="{{loopIndex}}" bindchange="onLoopPick">
-      <view class="opt-row">
+      <view class="opt-row opt-row-tappable">
         <text class="opt-label">循环</text>
         <text class="opt-value">{{loopLabels[loopIndex]}}</text>
       </view>
@@ -80,6 +133,64 @@
 
   <!-- 隐藏工作画布：2d canvas 用于取像素 -->
   <canvas id="workCanvas" type="2d" class="hidden-canvas"></canvas>
+
+  <view class="crop-modal" wx:if="{{cropModalVisible}}" catchtouchmove="noop">
+    <view class="crop-mask" catchtap="onCancelCropModal" catchtouchmove="noop"></view>
+    <view class="crop-card glass" catchtap="noop" catchtouchmove="noop">
+      <view class="crop-header">
+        <view class="crop-btn" bindtap="onCancelCropModal">取消</view>
+        <view class="crop-title">自定义裁剪 {{cropTargetIndex + 1}}/{{images.length}}</view>
+        <view class="crop-btn crop-btn-primary" bindtap="onConfirmCropModal">确定</view>
+      </view>
+
+      <view class="crop-body">
+        <view class="crop-area" style="width: {{cropViewW}}px; height: {{cropViewH}}px;" catchtouchmove="noop">
+          <image class="crop-bg" src="{{cropImagePath}}" mode="aspectFit" style="width: {{cropViewW}}px; height: {{cropViewH}}px;" />
+
+          <view class="crop-mask-top" style="left: 0px; top: 0px; width: {{cropViewW}}px; height: {{cropBoxY}}px;"></view>
+          <view class="crop-mask-left" style="left: 0px; top: {{cropBoxY}}px; width: {{cropBoxX}}px; height: {{cropBoxH}}px;"></view>
+          <view class="crop-mask-right" style="left: {{cropBoxX + cropBoxW}}px; top: {{cropBoxY}}px; width: {{cropViewW - cropBoxX - cropBoxW}}px; height: {{cropBoxH}}px;"></view>
+          <view class="crop-mask-bottom" style="left: 0px; top: {{cropBoxY + cropBoxH}}px; width: {{cropViewW}}px; height: {{cropViewH - cropBoxY - cropBoxH}}px;"></view>
+
+          <view
+            class="crop-box"
+            style="left: {{cropBoxX}}px; top: {{cropBoxY}}px; width: {{cropBoxW}}px; height: {{cropBoxH}}px;"
+            catchtouchstart="onCropTouchStart"
+            catchtouchmove="onCropTouchMove"
+            catchtouchend="onCropTouchEnd"
+            catchtouchcancel="onCropTouchEnd"
+          >
+            <view class="crop-grid">
+              <view class="crop-grid-v v1"></view>
+              <view class="crop-grid-v v2"></view>
+              <view class="crop-grid-h h1"></view>
+              <view class="crop-grid-h h2"></view>
+            </view>
+
+            <view class="crop-handle h-tl" data-handle="tl"></view>
+            <view class="crop-handle h-tr" data-handle="tr"></view>
+            <view class="crop-handle h-bl" data-handle="bl"></view>
+            <view class="crop-handle h-br" data-handle="br"></view>
+            <view class="crop-handle h-tm" data-handle="tm"></view>
+            <view class="crop-handle h-bm" data-handle="bm"></view>
+            <view class="crop-handle h-ml" data-handle="ml"></view>
+            <view class="crop-handle h-mr" data-handle="mr"></view>
+          </view>
+        </view>
+
+        <view class="crop-footer">
+          <view class="crop-btn crop-btn-ghost" bindtap="onCropPrev" wx:if="{{images.length}}">上一张</view>
+          <view class="crop-btn crop-btn-ghost" bindtap="onCropNext" wx:if="{{images.length}}">下一张</view>
+        </view>
+
+        <view class="crop-hint">拖动裁剪框；拖动角/边控制点缩放；双指可缩放</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="drag-layer" wx:if="{{dragging}}" catchtouchmove="onThumbDragMove" catchtouchend="onThumbDragEnd" catchtouchcancel="onThumbDragEnd">
+    <view class="drag-ghost" style="left: {{dragGhostX}}px; top: {{dragGhostY}}px; width: {{dragItemW}}px; height: {{dragItemH}}px;">
+      <image class="drag-ghost-img" src="{{dragGhostSrc}}" mode="aspectFill" />
+    </view>
+  </view>
 </view>
-
-

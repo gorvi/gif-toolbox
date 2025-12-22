@@ -53,14 +53,17 @@ function request(options) {
         }
       },
       fail: (err) => {
-        console.error('[request fail]', err)
-        const errMsg = err.errMsg || '网络请求失败'
+        const errMsg =
+          (err && (err.errMsg || err.message)) ||
+          (typeof err === 'string' ? err : '') ||
+          '网络请求失败'
+        console.error('[request fail]', errMsg)
         // 提供更详细的错误信息
         if (errMsg.includes('domain list') || errMsg.includes('不在白名单')) {
           reject(new Error('域名不在白名单，请在开发者工具中勾选"不校验合法域名"'))
         } else if (errMsg.includes('ECONNREFUSED') || errMsg.includes('connect') || errMsg.includes('refused')) {
           reject(new Error(`无法连接到后端服务 ${API_BASE_URL}，请确认：\n1. 后端服务已启动\n2. 端口是否正确\n3. 真机调试时请使用服务器IP而非localhost`))
-        } else if (errMsg.includes('Network Error') || errMsg.includes('timeout')) {
+        } else if (errMsg.includes('Network Error') || errMsg.includes('timeout') || errMsg.includes('Failed to fetch')) {
           reject(new Error(`网络错误，请检查后端服务是否运行在 ${API_BASE_URL}`))
         } else {
           reject(new Error(`${errMsg}\n后端地址: ${API_BASE_URL}`))
@@ -115,14 +118,17 @@ function uploadFile(options) {
         }
       },
       fail: (err) => {
-        console.error('[uploadFile fail]', err)
+        const errMsg =
+          (err && (err.errMsg || err.message)) ||
+          (typeof err === 'string' ? err : '') ||
+          '上传失败'
+        console.error('[uploadFile fail]', errMsg)
         // 提供更详细的错误信息
-        const errMsg = err.errMsg || '上传失败'
         if (errMsg.includes('domain list')) {
           reject(new Error('域名不在白名单，请在开发者工具中勾选"不校验合法域名"'))
         } else if (errMsg.includes('ECONNREFUSED') || errMsg.includes('connect')) {
           reject(new Error(`无法连接到后端服务 ${API_BASE_URL}，请确认：\n1. 后端服务已启动\n2. 端口是否正确\n3. 真机调试时请使用服务器IP而非localhost`))
-        } else if (errMsg.includes('Network Error')) {
+        } else if (errMsg.includes('Network Error') || errMsg.includes('timeout') || errMsg.includes('Failed to fetch')) {
           reject(new Error(`网络错误，请检查后端服务是否运行在 ${API_BASE_URL}`))
         } else {
           reject(new Error(errMsg))
@@ -136,4 +142,3 @@ module.exports = {
   request,
   uploadFile,
 }
-

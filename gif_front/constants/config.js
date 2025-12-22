@@ -2,9 +2,9 @@ const MAX_CLIP_DURATION_S = 10
 const DEFAULT_VIDEO_FPS = 4        // 降低默认帧率，减小GIF大小
 const DEFAULT_VIDEO_RESOLUTION_P = 320  // 降低默认分辨率，减小GIF大小
 const MAX_IMAGE_COUNT = 30
-const DEFAULT_FRAME_DELAY_MS = 120
+const DEFAULT_FRAME_DELAY_MS = 250
 const DEFAULT_GIF_LOOP = 0
-const DEFAULT_GIF_MAX_SIDE_PX = 480
+const DEFAULT_GIF_MAX_SIDE_PX = 720
 
 // 后端 API 地址配置
 // 开发环境：后端直接运行在本地
@@ -40,5 +40,3 @@ module.exports = {
   DEFAULT_GIF_MAX_SIDE_PX,
   API_BASE_URL,
 }
-
-

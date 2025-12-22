@@ -34,6 +34,10 @@
   min-height: 168rpx;
 }
 
+.card-disabled {
+  opacity: 0.55;
+}
+
 .card-top {
   display: flex;
   align-items: center;

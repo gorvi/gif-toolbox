@@ -31,18 +31,18 @@ function uploadVideo(videoPath) {
  * @param {number} options.width 宽度
  * @param {string} [options.qualityMode='HIGH'] 画质模式
  * @param {Object} [options.textConfig] 文字配置
- * @param {Object} [options.cropConfig] 裁剪配置 {x, y, width, height} (百分比)
+ * @param {Object} [options.cropConfig] 裁剪配置 {x, y, width, height} (0-1)
  * @returns {Promise<{taskId: string, status: string}>}
  */
 function createVideoToGifTask(options) {
   const { inputFileId, startS, endS, fps, width, qualityMode = 'HIGH', textConfig, cropConfig } = options || {}
   const data = {
-    inputFileId,
-    startS,
-    endS,
-    fps,
-    width,
-    qualityMode,
+      inputFileId,
+      startS,
+      endS,
+      fps,
+      width,
+      qualityMode,
   }
   // 如果有文字配置，添加到请求数据中
   if (textConfig && textConfig.content) {

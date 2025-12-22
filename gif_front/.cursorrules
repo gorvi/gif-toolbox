@@ -36,8 +36,58 @@
 - 苹果毛玻璃（glassmorphism）风格：半透明卡片 + blur + 细描边 + 柔和阴影
 - 主要样式复用 `app.wxss` 中的 `.glass/.glass-strong/.btn-primary`
 
-当信息不足时，最多问 3 个关键问题后再继续实现。
+## 三大功能通用 UI / 交互模板（强制）
+适用页面：视频转 GIF、图片转 GIF、GIF 压缩，以及未来新增工具页。
 
+### 1) 页面结构（统一）
+- 页面根容器使用 `.page.safe-area`，底部留出 `safe-area-inset-bottom`
+- 顶部信息区：用胶囊 pill 呈现“已选数量/输入信息”（如分辨率、帧数、时长）
+- 主内容区：使用 `.glass-strong` 作为主卡片（预览/空态）
+- 参数区：使用 `.glass`，行式配置（label/value），tappable 行用 `:active` 降透明
+- 底部主动作：`btn-primary`（开始/生成），次动作：`btn-ghost`（保存/清空等）
+
+### 2) 入口策略（统一）
+- 初始空态只保留一个“选择”入口（避免页面出现两个选择入口）
+- 选择后才显示“更换/追加/清空”等二级入口（放在预览区下方或顶部工具区）
+- 首页点击入口默认“先跳页，再弹选择”：通过 `?autoChoose=1` 触发页面 `onLoad` 自动弹出来源选择
+
+### 3) 选择来源（统一）
+- 所有“选择”统一走 `onChooseSource`，用 `wx.showActionSheet` 列出来源
+- 推荐菜单命名（按业务裁剪）：
+  - 图片类：`相册选择 / 聊天图片`
+  - 视频类：`拍摄 / 从相册选择 / 聊天视频`
+  - 文件类（如 GIF）：`相册选择 / 聊天图片 / 聊天文件`
+- 相册选择优先用 `wx.chooseMedia`；聊天选择用 `wx.chooseMessageFile`：
+  - `type: 'image'` / `type: 'video'` / `type: 'file'`
+  - 需要限制格式时，使用 `extension: ['gif']` 等
+
+### 4) 取消与错误提示（统一）
+- 用户取消不提示错误：通过 `errMsg/message` 包含 `cancel` 判定并直接 return
+- 真失败必须提示原因：
+  - 轻提示用 `wx.showToast({ icon: 'none' })`
+  - 需要说明/引导用 `wx.showModal({ showCancel: false })`
+- 对格式不符的输入要“明确解释 + 引导下一步”（例如相册把动图转静态图、WebP 动图暂不支持等）
+
+### 5) 入参传递（统一）
+- 小 payload 用 query；大 payload（文件 path 列表）用 `getApp().globalData` 中转
+- 建议约定 key（保持一致，便于复用）：
+  - `selectedVideoPath/selectedVideoWidth/selectedVideoHeight/selectedVideoDuration`
+  - `selectedImages`（元素结构：`{ path, fitMode, cropMode }`）
+- 页面接收后立刻“消费并清空” globalData，避免返回再进导致重复带入
+
+### 6) 处理状态与进度（统一）
+- 处理期间：
+  - `processing=true` 禁止重复点击入口与主按钮
+  - `wx.showLoading({ mask: true })` + 页面内进度文本/进度条（二选一或同时）
+- 处理完成：
+  - 更新输出预览与体积信息（输入/输出字节 + 节省百分比）
+  - toast 成功提示；失败用 modal 提示
+
+### 7) 预览与保存（统一）
+- 输出物使用 `<image mode="aspectFit">` 或与业务匹配的 mode；点击可 `wx.previewImage`
+- 保存动作统一用 `wx.saveImageToPhotosAlbum`，失败提示“检查相册权限”
+
+当信息不足时，最多问 3 个关键问题后再继续实现。
 
 
 
