@@ -1,0 +1,134 @@
+<view class="page safe-area">
+  <view class="top-toolbar">
+    <view class="top-toolbar-left">
+      <view class="top-toolbar-count-pill">
+        <text class="top-toolbar-count">已输入 {{textLines.length}} 行</text>
+      </view>
+    </view>
+    <view class="top-toolbar-right">
+      <view class="ui-btn ui-btn-ghost" bindtap="onClearText">
+        <text class="ui-btn-icon">×</text>
+        <text class="ui-btn-label">清空</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="panel glass-strong preview-panel">
+    <view class="preview">
+      <view class="text-input-area" wx:if="{{textLines.length}}">
+        <block wx:for="{{textLines}}" wx:key="index">
+          <view class="text-item {{activeTextIndex === index ? 'text-item-active' : ''}}" bindtap="onSelectText" data-index="{{index}}">
+            <text class="text-content">{{item}}</text>
+            <view class="del" catchtap="onRemoveText" data-index="{{index}}">×</view>
+          </view>
+        </block>
+      </view>
+
+      <view class="empty" wx:else>
+        <view class="empty-title">还没有输入文字</view>
+        <view class="empty-desc">每行文字将作为一帧</view>
+        <view class="empty-actions">
+          <view class="ui-btn ui-btn-green" bindtap="onShowKeyboard">
+            <text class="ui-btn-icon">T</text>
+            <text class="ui-btn-label">开始输入</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="options glass">
+    <view class="opt-row">
+      <text class="opt-label">字体</text>
+      <picker mode="selector" range="{{fontList}}" value="{{fontIndex}}" bindchange="onFontChange">
+        <view class="opt-value">
+          <text class="opt-value-text">{{fontList[fontIndex]}}</text>
+        </view>
+      </picker>
+    </view>
+
+    <view class="divider"></view>
+
+    <view class="opt-row">
+      <text class="opt-label">颜色</text>
+      <view class="color-picker" bindtap="onColorPicker">
+        <view class="color-preview" style="background-color: {{textColor}}"></view>
+        <text class="opt-value-text">{{textColor}}</text>
+      </view>
+    </view>
+
+    <view class="divider"></view>
+
+    <view class="opt-row">
+      <text class="opt-label">字号</text>
+      <text class="opt-value">{{fontSize}} px</text>
+    </view>
+    <slider class="slider" min="12" max="100" step="2" value="{{fontSize}}" bindchange="onFontSizeChange" activeColor="#20c05c" />
+
+    <view class="divider"></view>
+
+    <view class="opt-row">
+      <text class="opt-label">背景色</text>
+      <view class="color-picker" bindtap="onBgColorPicker">
+        <view class="color-preview" style="background-color: {{bgColor}}"></view>
+        <text class="opt-value-text">{{bgColor}}</text>
+      </view>
+    </view>
+
+    <view class="divider"></view>
+
+    <view class="opt-row">
+      <text class="opt-label">动画</text>
+      <picker mode="selector" range="{{animationList}}" value="{{animationIndex}}" bindchange="onAnimationChange">
+        <view class="opt-value">
+          <text class="opt-value-text">{{animationList[animationIndex]}}</text>
+        </view>
+      </picker>
+    </view>
+
+    <view class="divider"></view>
+
+    <view class="opt-row">
+      <text class="opt-label">帧时长</text>
+      <text class="opt-value">{{frameDelayMs}} ms</text>
+    </view>
+    <slider class="slider" min="50" max="1000" step="10" value="{{frameDelayMs}}" bindchange="onDelayChange" activeColor="#20c05c" />
+
+    <view class="divider"></view>
+
+    <view class="opt-row">
+      <text class="opt-label">每秒帧数</text>
+      <text class="opt-value">{{fps}} FPS</text>
+    </view>
+    <slider class="slider" min="1" max="30" step="1" value="{{fps}}" bindchange="onFpsChange" activeColor="#20c05c" />
+  </view>
+
+  <view class="result glass" wx:if="{{outPath}}">
+    <view class="result-title">预览</view>
+    <image class="result-img" src="{{outPath}}" mode="widthFix" />
+    <view class="result-actions">
+      <button class="btn btn-primary" bindtap="onSave">保存到相册</button>
+    </view>
+  </view>
+
+  <view class="bottom safe-area">
+    <button class="btn btn-primary" bindtap="onGenerate" disabled="{{processing}}">生成GIF</button>
+    <view class="progress" wx:if="{{processing}}">{{progressText}}</view>
+  </view>
+
+  <view class="keyboard-modal" wx:if="{{keyboardVisible}}" catchtouchmove="noop">
+    <view class="keyboard-mask" catchtap="onHideKeyboard" catchtouchmove="noop"></view>
+    <view class="keyboard-card glass" catchtap="noop" catchtouchmove="noop">
+      <view class="keyboard-header">
+        <view class="keyboard-title">输入文字</view>
+        <view class="keyboard-btn" bindtap="onHideKeyboard">关闭</view>
+      </view>
+      <view class="keyboard-body">
+        <textarea class="keyboard-input" value="{{inputText}}" bindinput="onInputText" placeholder="每行文字将作为一帧" auto-height="{{true}}" maxlength="1000"></textarea>
+      </view>
+      <view class="keyboard-footer">
+        <button class="btn btn-primary" bindtap="onAddText">添加</button>
+      </view>
+    </view>
+  </view>
+</view>
