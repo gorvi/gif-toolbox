@@ -5,8 +5,7 @@
     "pages/images-to-gif/index",
     "pages/gif-compress/index",
     "pages/gif-add-text/index",
-    "pages/gif-edit/index",
-    "pages/logs/logs"
+    "pages/gif-edit/index"
   ],
   "window": {
     "navigationBarTextStyle": "black",

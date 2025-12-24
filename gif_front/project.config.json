@@ -2,7 +2,32 @@
   "compileType": "miniprogram",
   "libVersion": "3.12.1",
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "value": "imgs/a_demo1.gif",
+        "type": "file"
+      },
+      {
+        "value": "imgs/a_demo2.gif",
+        "type": "file"
+      },
+      {
+        "value": "imgs/b_demo2.gif",
+        "type": "file"
+      },
+      {
+        "value": "imgs/b_demo3.gif",
+        "type": "file"
+      },
+      {
+        "value": "imgs/b_demo1.gif",
+        "type": "file"
+      },
+      {
+        "value": "imgs/b_demo4.gif",
+        "type": "file"
+      }
+    ],
     "include": [
       {
         "value": "libs/omggif.js",

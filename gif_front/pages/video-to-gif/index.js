@@ -1,6 +1,7 @@
 const { MAX_CLIP_DURATION_S, DEFAULT_VIDEO_FPS, DEFAULT_VIDEO_RESOLUTION_P } = require('../../constants/config')
 const { formatHms } = require('../../utils/time')
 const { isVideoToGifSupported, convertVideoToGif } = require('../../services/video-to-gif')
+const { getGifMeta } = require('../../services/gif-compress')
 
 // 导入工具函数 / 模块
 const { clamp, toFixed1, filterEmoji, formatHms1, formatClock, buildTicks, getDistance } = require('./utils')
@@ -16,6 +17,39 @@ const FPS_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 function isCancelError(e) {
   const msg = String((e && (e.errMsg || e.message)) || '')
   return msg.includes('cancel') || msg.includes('fail cancel')
+}
+
+function formatBytes(bytes) {
+  const n = Number(bytes) || 0
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(2)} MB`
+}
+
+function getFileSizeBytes(filePath) {
+  return new Promise((resolve) => {
+    if (!filePath) {
+      resolve(0)
+      return
+    }
+    const fs = wx.getFileSystemManager && wx.getFileSystemManager()
+    if (fs && typeof fs.statSync === 'function') {
+      try {
+        const stat = fs.statSync(filePath)
+        resolve(Number(stat && stat.size) || 0)
+        return
+      } catch (e) {}
+    }
+    if (typeof wx.getFileInfo !== 'function') {
+      resolve(0)
+      return
+    }
+    wx.getFileInfo({
+      filePath,
+      success: (res) => resolve(Number(res && res.size) || 0),
+      fail: () => resolve(0),
+    })
+  })
 }
 
 function chooseVideoFromChat() {
@@ -125,6 +159,9 @@ Page({
     outPath: '',
     lastConvertSignature: '',
     showGifPreview: false,  // 是否显示GIF预览弹框
+    gifMeta: null,
+    gifMetaLoading: false,
+    gifMetaError: '',
     showFullscreenPreview: false,  // 是否显示全屏预览
 
     // 文字编辑面板（改为首页直接编辑）
@@ -333,11 +370,6 @@ Page({
     request({ url: '/healthz' })
       .then((data) => {
         console.log('[后端连接] ✅ 正常', data)
-        wx.showToast({
-          title: '后端连接正常',
-          icon: 'success',
-          duration: 2000,
-        })
       })
       .catch((err) => {
         console.error('[后端连接] /healthz 失败:', err.message)
@@ -374,20 +406,20 @@ Page({
 
   async onChooseVideo() {
     wx.showActionSheet({
-      itemList: ['拍摄', '从相册选择', '聊天视频'],
+      itemList: ['从相册选择', '聊天视频', '拍摄'],
       success: async (res) => {
         const tapIndex = Number(res && res.tapIndex)
         try {
           let picked = null
           if (tapIndex === 0) {
-            picked = await chooseSingleVideoFromSource(['camera'])
-          } else if (tapIndex === 1) {
             picked = await chooseSingleVideoFromSource(['album'])
-          } else if (tapIndex === 2) {
+          } else if (tapIndex === 1) {
             const path = await chooseVideoFromChat()
             if (!path) return
             this.setVideoData(path, 0, 0, 0)
             return
+          } else if (tapIndex === 2) {
+            picked = await chooseSingleVideoFromSource(['camera'])
           }
 
           if (!picked) return
@@ -609,11 +641,14 @@ Page({
   },
 
   // 关闭编辑组件（点击其他功能或空白区域时调用）
-  onCloseEditComponent() {
+  onCloseEditComponent(eOrCb) {
+    const cb = typeof eOrCb === 'function' ? eOrCb : null
     this.setData({ 
       textActiveTab: 'none',
       textInputFocus: false,
       textDragging: false,
+    }, () => {
+      if (typeof cb === 'function') cb()
     })
     if (this._textDrag) this._textDrag.active = false
     if (this._pinch) this._pinch.active = false
@@ -1554,12 +1589,24 @@ Page({
   // 导出功能（就是转换功能）
   onExport() {
     if (this.data.processing) return
-    const currentSignature = this.getCurrentConvertSignature()
-    if (this.data.outPath && this.data.lastConvertSignature === currentSignature) {
-      this.setData({ showGifPreview: true })
+    const doExport = () => {
+      const currentSignature = this.getCurrentConvertSignature()
+      if (this.data.outPath && this.data.lastConvertSignature === currentSignature) {
+        this.openGifPreview(this.data.outPath)
+        return
+      }
+      this.onConvert()
+    }
+
+    if (this.data.textActiveTab && this.data.textActiveTab !== 'none') {
+      wx.hideKeyboard()
+      this.onCloseEditComponent(() => {
+        setTimeout(doExport, 0)
+      })
       return
     }
-    this.onConvert()
+
+    doExport()
   },
 
   getCurrentConvertSignature() {
@@ -1814,13 +1861,13 @@ Page({
         },
       })
       wx.hideLoading()
-      this.setData({ 
-        outPath, 
+      this.setData({
+        outPath,
         lastConvertSignature: convertSignature,
-        processing: false, 
+        processing: false,
         progressText: '',
-        showGifPreview: true  // 显示预览弹框
       })
+      await this.openGifPreview(outPath)
     } catch (e) {
       wx.hideLoading()
       this.setData({ processing: false, progressText: '' })
@@ -1844,8 +1891,6 @@ Page({
         })
       })
       wx.showToast({ title: '已保存到相册', icon: 'success' })
-      // 保存成功后关闭预览弹框
-      this.setData({ showGifPreview: false })
     } catch (e) {
       wx.showModal({
         title: '保存失败',
@@ -1858,6 +1903,27 @@ Page({
   // 关闭GIF预览弹框
   onCloseGifPreview() {
     this.setData({ showGifPreview: false })
+  },
+
+  noop() {},
+
+  async openGifPreview(outPath) {
+    if (!outPath) return
+    this.setData({ showGifPreview: true, gifMetaLoading: true, gifMetaError: '', gifMeta: null })
+    try {
+      const [meta, sizeBytes] = await Promise.all([getGifMeta(outPath), getFileSizeBytes(outPath)])
+      const durationS = Math.max(0, Number(meta && meta.durationCs) || 0) / 100
+      const gifMeta = {
+        resolution: `${meta.width}×${meta.height}`,
+        frames: Number(meta.frames) || 0,
+        duration: formatClock(durationS, durationS),
+        size: formatBytes(sizeBytes),
+        fps: (Number(meta.fps) || 0).toFixed(1),
+      }
+      this.setData({ gifMeta, gifMetaLoading: false })
+    } catch (e) {
+      this.setData({ gifMetaLoading: false, gifMetaError: '参数读取失败' })
+    }
   },
 
   /**

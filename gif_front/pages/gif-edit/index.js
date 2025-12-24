@@ -15,6 +15,8 @@ const TOOL_TITLE = {
   trim: '删帧',
   text: '文字',
   compress: '压缩',
+  rotate: '旋转',
+  resize: '缩放',
 }
 
 function chooseGifFromAlbum() {
@@ -133,6 +135,7 @@ Page({
   data: {
     inputPath: '',
     inputInfoText: '',
+    inputBytes: 0,
     inputW: 0,
     inputH: 0,
     inputFrames: 0,
@@ -153,6 +156,8 @@ Page({
     cropConfig: { enabled: false, x: 0, y: 0, width: 100, height: 100 },
     cropPreviewConfig: null,
     cropDragging: false,
+        cropPreviewConfig: null,
+        cropDragging: false,
 
     trimStartFrame: 0,
     trimEndFrame: 0,
@@ -165,6 +170,7 @@ Page({
     trimDeleted: {},
     trimSelectedCount: 0,
     trimDeletedCount: 0,
+    trimDeletePulse: false,
     trimPreviewPath: '',
     trimThumbHint: '',
     gifDisplaySrc: '',
@@ -221,6 +227,19 @@ Page({
       _animStyle: '',
     },
     textDragging: false,
+
+    rotatePreviewMode: 'none',
+    rotatePreviewLabel: '无',
+    rotatePreviewTransformStyle: '',
+    rotatePreviewOptions: [
+      { label: '无', value: 'none' },
+      { label: '顺时针90°', value: 'cw90' },
+      { label: '逆时针90°', value: 'ccw90' },
+      { label: '镜像翻转', value: 'mirror' },
+    ],
+
+    resizeScalePct: 100,
+    resizePresets: [50, 75, 100],
 
     colorOptions: ['#ffffff', '#000000', '#ff4d4f', '#20c05c', '#2f54eb', '#ffd54d', '#9254de', '#13c2c2', '#fa8c16'],
     animationOptions: [
@@ -366,14 +385,26 @@ Page({
     if (!path) return
     wx.showLoading({ title: '读取中…', mask: true })
     try {
+      const inputBytes = await new Promise((resolve) => {
+        if (!wx.getFileInfo) {
+          resolve(0)
+          return
+        }
+        wx.getFileInfo({
+          filePath: path,
+          success: (res) => resolve(Number(res && res.size) || 0),
+          fail: () => resolve(0),
+        })
+      })
       const meta = await getGifMeta(path)
       const inputW = Number(meta.width) || 0
       const inputH = Number(meta.height) || 0
       const frames = Number(meta.frames) || 0
       const fps = Number(meta.fps) || 0
+      const sizeText = inputBytes > 0 ? formatBytes(inputBytes) : ''
       const inputInfoText = fps > 0
-        ? `${inputW}×${inputH}px · ${frames}帧 · ${fps.toFixed(1)}FPS`
-        : `${inputW}×${inputH}px · ${frames}帧`
+        ? `${inputW}×${inputH}px · ${frames}帧 · ${fps.toFixed(1)}FPS${sizeText ? ` · ${sizeText}` : ''}`
+        : `${inputW}×${inputH}px · ${frames}帧${sizeText ? ` · ${sizeText}` : ''}`
 
       const maxFrameIndex = Math.max(0, frames - 1)
       this.setData({
@@ -381,6 +412,7 @@ Page({
         gifDisplaySrc: path,
         gifPlaying: true,
         inputInfoText,
+        inputBytes,
         inputW,
         inputH,
         inputFrames: frames,
@@ -448,6 +480,40 @@ Page({
     } finally {
       wx.hideLoading()
     }
+  },
+
+  getRotatePreviewComputed(mode) {
+    const m = String(mode || 'none')
+    if (m === 'cw90') return { label: '顺时针90°', style: 'transform: rotate(90deg); transform-origin: 50% 50%;' }
+    if (m === 'ccw90') return { label: '逆时针90°', style: 'transform: rotate(-90deg); transform-origin: 50% 50%;' }
+    if (m === 'mirror') return { label: '镜像', style: 'transform: scaleX(-1); transform-origin: 50% 50%;' }
+    return { label: '无', style: '' }
+  },
+
+  onRotatePreviewPick(e) {
+    if (this.data.processing) return
+    const picked = String(e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.mode || 'none')
+    const nextMode = (picked === String(this.data.rotatePreviewMode || 'none')) ? 'none' : picked
+    const computed = this.getRotatePreviewComputed(nextMode)
+    this.setData({
+      rotatePreviewMode: nextMode,
+      rotatePreviewLabel: computed.label,
+      rotatePreviewTransformStyle: computed.style,
+    })
+  },
+
+  onResizePreset(e) {
+    if (this.data.processing) return
+    const pct = Number(e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.pct)
+    const next = Number.isFinite(pct) ? pct : 100
+    this.setData({ resizeScalePct: next }, () => this.markOutputDirty())
+  },
+
+  onResizeSliderChange(e) {
+    if (this.data.processing) return
+    const pct = Number(e && e.detail && e.detail.value)
+    const next = Number.isFinite(pct) ? pct : 100
+    this.setData({ resizeScalePct: next }, () => this.markOutputDirty())
   },
 
   onToggleGifPlay() {
@@ -525,6 +591,12 @@ Page({
     }
     const tool = String(e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.tool) || 'none'
     const patch = { activeTool: tool, activeToolTitle: TOOL_TITLE[tool] || '', textKeyboardHeightPx: 0 }
+    if (tool === 'trim') {
+      this._trimDeleteHinted = false
+      if (this._trimDeletePulseTimer) clearTimeout(this._trimDeletePulseTimer)
+      this._trimDeletePulseTimer = null
+      patch.trimDeletePulse = false
+    }
     if (tool === 'text') {
       this._textToolSnapshot = {
         textConfig: JSON.parse(JSON.stringify(this.data.textConfig || {})),
@@ -620,9 +692,23 @@ Page({
   },
 
   updateTrimCounts() {
+    const prevSelectedCount = Number(this.data.trimSelectedCount) || 0
     const trimSelectedCount = countKeys(this.data.trimSelected)
     const trimDeletedCount = countKeys(this.data.trimDeleted)
-    this.setData({ trimSelectedCount, trimDeletedCount })
+    this.setData({ trimSelectedCount, trimDeletedCount }, () => {
+      if (this.data.activeTool !== 'trim') return
+      if (trimSelectedCount <= 0) return
+      if (prevSelectedCount > 0) return
+      if (this._trimDeleteHinted) return
+      this._trimDeleteHinted = true
+      this.setData({ trimDeletePulse: true })
+      if (this._trimDeletePulseTimer) clearTimeout(this._trimDeletePulseTimer)
+      this._trimDeletePulseTimer = setTimeout(() => {
+        this._trimDeletePulseTimer = null
+        if (this.data.activeTool !== 'trim') return
+        this.setData({ trimDeletePulse: false })
+      }, 520)
+    })
   },
 
   async prepareTrimThumbs() {
@@ -698,17 +784,27 @@ Page({
     for (const i of keys) {
       if (i >= 0 && i < total && !del0[i]) willDelete++
     }
+    if (!willDelete) return
     if (total - (alreadyDeleted + willDelete) <= 0) {
       wx.showToast({ title: '至少保留 1 帧', icon: 'none' })
       return
     }
 
-    const nextDel = { ...del0 }
-    for (const i of keys) nextDel[i] = true
-    this.setData({ trimDeleted: nextDel, trimSelected: {}, trimPreviewPath: '' }, () => {
-      this.updateTrimCounts()
-      this.refreshTrimText()
-      this.markOutputDirty()
+    wx.showModal({
+      title: `确认删除 ${willDelete} 帧？`,
+      content: '删除后可用“恢复”撤销',
+      confirmText: '确认删除',
+      confirmColor: '#ff4d4f',
+      success: (res) => {
+        if (!res || !res.confirm) return
+        const nextDel = { ...del0 }
+        for (const i of keys) nextDel[i] = true
+        this.setData({ trimDeleted: nextDel, trimSelected: {}, trimPreviewPath: '' }, () => {
+          this.updateTrimCounts()
+          this.refreshTrimText()
+          this.markOutputDirty()
+        })
+      },
     })
   },
 
@@ -1705,6 +1801,8 @@ Page({
     const deletedFrames = Object.keys(this.data.trimDeleted || {}).map((k) => Number(k)).filter((n) => Number.isFinite(n))
     const trimConfig = { startFrame: 0, endFrame: this.data.maxFrameIndex, deletedFrames }
 
+    const resizeConfig = { enabled: true, scalePct: this.data.resizeScalePct }
+
     const t = this.data.textConfig || {}
     const text = String(t.text || '').trim()
     const strokeColor = String(t.strokeColor || (t.color === '#000000' ? '#ffffff' : '#000000'))
@@ -1754,6 +1852,7 @@ Page({
         cropConfig,
         trimConfig,
         textConfig,
+        resizeConfig,
         onProgress: ({ step, index, total }) => {
           const i = Number(index) || 0
           const t2 = Number(total) || 0
@@ -1762,9 +1861,10 @@ Page({
             const r = Math.max(0, Math.min(1, i / t2))
             if (step === '解码') pct = Math.round(r * 50)
             else if (step === '裁剪') pct = 50 + Math.round(r * 8)
-            else if (step === '缩放') pct = 58 + Math.round(r * 10)
-            else if (step === '文字') pct = 68 + Math.round(r * 8)
-            else if (step === '量化') pct = 76 + Math.round(r * 16)
+            else if (step === '旋转') pct = 58 + Math.round(r * 6)
+            else if (step === '缩放') pct = 64 + Math.round(r * 8)
+            else if (step === '文字') pct = 72 + Math.round(r * 6)
+            else if (step === '量化') pct = 78 + Math.round(r * 14)
             else if (step === '编码') pct = 92 + Math.round(r * 7)
             else if (step === '写入文件') pct = 99
             else if (step === '读取文件') pct = 3

@@ -609,14 +609,40 @@
   </view>
 
   <!-- GIF预览模态弹框 -->
-  <view class="gif-preview-modal {{showGifPreview ? 'gif-preview-modal-show' : ''}}" wx:if="{{showGifPreview && outPath}}" catchtap="onCloseGifPreview">
-    <view class="gif-preview-content" catchtap="">
+  <view class="gif-preview-modal {{showGifPreview ? 'gif-preview-modal-show' : ''}}" wx:if="{{showGifPreview && outPath}}" catchtap="noop" catchtouchmove="">
+    <view class="gif-preview-content" catchtap="noop">
       <view class="gif-preview-header">
         <text class="gif-preview-title">预览</text>
         <view class="gif-preview-close" bindtap="onCloseGifPreview">×</view>
       </view>
       <view class="gif-preview-body">
-        <image class="gif-preview-img" src="{{outPath}}" mode="widthFix" />
+        <view class="gif-preview-image-wrap">
+          <image class="gif-preview-img" src="{{outPath}}" mode="aspectFit" />
+        </view>
+        <view class="gif-meta-loading" wx:if="{{gifMetaLoading}}">读取参数…</view>
+        <view class="gif-meta-error" wx:if="{{!gifMetaLoading && gifMetaError}}">{{gifMetaError}}</view>
+        <view class="gif-meta-grid" wx:if="{{!gifMetaLoading && gifMeta}}">
+          <view class="gif-meta-item">
+            <text class="gif-meta-item-label">分辨率</text>
+            <text class="gif-meta-item-value">{{gifMeta.resolution}}</text>
+          </view>
+          <view class="gif-meta-item">
+            <text class="gif-meta-item-label">帧数</text>
+            <text class="gif-meta-item-value">{{gifMeta.frames}}</text>
+          </view>
+          <view class="gif-meta-item">
+            <text class="gif-meta-item-label">时长</text>
+            <text class="gif-meta-item-value">{{gifMeta.duration}}</text>
+          </view>
+          <view class="gif-meta-item">
+            <text class="gif-meta-item-label">大小</text>
+            <text class="gif-meta-item-value">{{gifMeta.size}}</text>
+          </view>
+          <view class="gif-meta-item">
+            <text class="gif-meta-item-label">FPS</text>
+            <text class="gif-meta-item-value">{{gifMeta.fps}}</text>
+          </view>
+        </view>
       </view>
       <view class="gif-preview-actions">
         <button class="btn btn-primary" bindtap="onSave">保存到相册</button>
@@ -626,7 +652,7 @@
 
   <!-- 全屏预览模态弹框 -->
   <view class="fullscreen-preview-modal {{showFullscreenPreview ? 'fullscreen-preview-modal-show' : ''}}" wx:if="{{showFullscreenPreview && videoPath}}" catchtouchmove="">
-    <view class="fullscreen-preview-content" catchtap="">
+    <view class="fullscreen-preview-content" catchtap="noop">
       <view class="fullscreen-preview-header">
         <text class="fullscreen-preview-title">全屏预览</text>
         <view class="fullscreen-preview-close" bindtap="onCloseFullscreenPreview">×</view>

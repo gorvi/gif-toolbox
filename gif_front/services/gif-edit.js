@@ -488,6 +488,79 @@ function cropRGBA(srcRGBA, srcW, srcH, sx, sy, sw, sh, outRGBA) {
   return { w: w0, h: h0 }
 }
 
+function clampRotateConfig(rotateConfig) {
+  const cfg = rotateConfig || null
+  if (!cfg || cfg.enabled === false) return { deg: 0 }
+  const deg0 = Number(cfg.deg)
+  if (!Number.isFinite(deg0)) return { deg: 0 }
+  const d = ((Math.round(deg0 / 90) * 90) % 360 + 360) % 360
+  if (d === 90 || d === 180 || d === 270) return { deg: d }
+  return { deg: 0 }
+}
+
+function clampResizeConfig(resizeConfig) {
+  const cfg = resizeConfig || null
+  if (!cfg || cfg.enabled === false) return { scalePct: 100 }
+  const pct0 = Number(cfg.scalePct)
+  const pct = Number.isFinite(pct0) ? Math.round(pct0) : 100
+  return { scalePct: Math.max(25, Math.min(100, pct)) }
+}
+
+function rotateRGBA(srcRGBA, srcW, srcH, deg, outRGBA) {
+  const d = ((Number(deg) || 0) % 360 + 360) % 360
+  if (d === 0) return { w: srcW, h: srcH }
+  if (d === 180) {
+    for (let y = 0; y < srcH; y++) {
+      for (let x = 0; x < srcW; x++) {
+        const srcP = (y * srcW + x) * 4
+        const dx = srcW - 1 - x
+        const dy = srcH - 1 - y
+        const dstP = (dy * srcW + dx) * 4
+        outRGBA[dstP] = srcRGBA[srcP]
+        outRGBA[dstP + 1] = srcRGBA[srcP + 1]
+        outRGBA[dstP + 2] = srcRGBA[srcP + 2]
+        outRGBA[dstP + 3] = srcRGBA[srcP + 3]
+      }
+    }
+    return { w: srcW, h: srcH }
+  }
+  if (d === 90) {
+    const outW = srcH
+    const outH = srcW
+    for (let y = 0; y < srcH; y++) {
+      for (let x = 0; x < srcW; x++) {
+        const srcP = (y * srcW + x) * 4
+        const dx = outW - 1 - y
+        const dy = x
+        const dstP = (dy * outW + dx) * 4
+        outRGBA[dstP] = srcRGBA[srcP]
+        outRGBA[dstP + 1] = srcRGBA[srcP + 1]
+        outRGBA[dstP + 2] = srcRGBA[srcP + 2]
+        outRGBA[dstP + 3] = srcRGBA[srcP + 3]
+      }
+    }
+    return { w: outW, h: outH }
+  }
+  if (d === 270) {
+    const outW = srcH
+    const outH = srcW
+    for (let y = 0; y < srcH; y++) {
+      for (let x = 0; x < srcW; x++) {
+        const srcP = (y * srcW + x) * 4
+        const dx = y
+        const dy = outH - 1 - x
+        const dstP = (dy * outW + dx) * 4
+        outRGBA[dstP] = srcRGBA[srcP]
+        outRGBA[dstP + 1] = srcRGBA[srcP + 1]
+        outRGBA[dstP + 2] = srcRGBA[srcP + 2]
+        outRGBA[dstP + 3] = srcRGBA[srcP + 3]
+      }
+    }
+    return { w: outW, h: outH }
+  }
+  return { w: srcW, h: srcH }
+}
+
 function toIndexSet(arr) {
   const out = Object.create(null)
   const list = Array.isArray(arr) ? arr : []
@@ -512,6 +585,8 @@ async function editGif(options) {
     cropConfig,
     trimConfig,
     textConfig,
+    rotateConfig,
+    resizeConfig,
     onProgress,
   } = options || {}
 
@@ -570,11 +645,18 @@ async function editGif(options) {
     cropH = Math.max(1, Math.min(srcH - cropY, Math.round((crop.height / 100) * srcH)))
   }
 
-  const maxDim0 = Math.max(cropW, cropH)
+  const rotate = clampRotateConfig(rotateConfig)
+  const resize = clampResizeConfig(resizeConfig)
+
+  const rotW = (rotate.deg === 90 || rotate.deg === 270) ? cropH : cropW
+  const rotH = (rotate.deg === 90 || rotate.deg === 270) ? cropW : cropH
+
+  const maxDim0 = Math.max(rotW, rotH)
   const baseLongEdge = Math.min(maxSidePx, maxDim0)
-  const scale = baseLongEdge / maxDim0
-  const outW = Math.max(1, Math.round(cropW * scale))
-  const outH = Math.max(1, Math.round(cropH * scale))
+  const scale0 = baseLongEdge / maxDim0
+  const scale1 = scale0 * (resize.scalePct / 100)
+  const outW = Math.max(1, Math.round(rotW * scale1))
+  const outH = Math.max(1, Math.round(rotH * scale1))
 
   const loop = reader.loopCount()
   const writer = new GifWriter(
@@ -586,6 +668,7 @@ async function editGif(options) {
 
   let composited = new Uint8Array(srcW * srcH * 4)
   const croppedRGBA = new Uint8Array(cropW * cropH * 4)
+  const rotatedRGBA = rotate.deg ? new Uint8Array(cropW * cropH * 4) : null
   const outRGBA = new Uint8Array(outW * outH * 4)
   const indexed = new Uint8Array(outW * outH)
 
@@ -610,8 +693,19 @@ async function editGif(options) {
       if (typeof onProgress === 'function') onProgress({ step: '裁剪', index: i + 1, total: totalFrames })
       cropRGBA(composited, srcW, srcH, cropX, cropY, cropW, cropH, croppedRGBA)
 
+      let scaleSrcRGBA = croppedRGBA
+      let scaleSrcW = cropW
+      let scaleSrcH = cropH
+      if (rotate.deg && rotatedRGBA) {
+        if (typeof onProgress === 'function') onProgress({ step: '旋转', index: i + 1, total: totalFrames })
+        const rr = rotateRGBA(croppedRGBA, cropW, cropH, rotate.deg, rotatedRGBA)
+        scaleSrcRGBA = rotatedRGBA
+        scaleSrcW = rr.w
+        scaleSrcH = rr.h
+      }
+
       if (typeof onProgress === 'function') onProgress({ step: '缩放', index: i + 1, total: totalFrames })
-      resampleBilinearRGBA(croppedRGBA, cropW, cropH, outW, outH, outRGBA)
+      resampleBilinearRGBA(scaleSrcRGBA, scaleSrcW, scaleSrcH, outW, outH, outRGBA)
 
       const hasText = textConfig && normalizeText(textConfig.text)
       if (hasText) {
