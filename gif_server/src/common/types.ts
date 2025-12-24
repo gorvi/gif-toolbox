@@ -1,5 +1,6 @@
 export const TASK_TYPE = {
   VIDEO_TO_GIF: 'VIDEO_TO_GIF',
+  VIDEO_TO_LIVE: 'VIDEO_TO_LIVE',
 } as const
 
 export type TaskType = (typeof TASK_TYPE)[keyof typeof TASK_TYPE]

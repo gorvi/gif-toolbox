@@ -18,8 +18,8 @@ const DEFAULT_GIF_MAX_SIDE_PX = 720
 // 注意：小程序开发者工具无法访问 localhost，需要使用实际 IP 地址
 // 如果后端在本地运行，使用本机 IP（例如：192.168.71.117）
 // 如果后端在服务器上，使用服务器 IP
-const DEV_API_BASE_URL = 'http://192.168.71.117:3001'  // 已自动设置为你的本机 IP
-// const DEV_API_BASE_URL = 'http://localhost:3001'  // 如果浏览器测试，可以用这个
+const DEV_API_BASE_URL = 'http://192.168.3.96:3000'  // 已自动设置为你的本机 IP
+// const DEV_API_BASE_URL = 'http://localhost:3000'  // 如果浏览器测试，可以用这个
 
 // 生产环境（服务器部署，需要替换为实际地址）
 const PROD_API_BASE_URL = 'https://api.xxx.com'  // TODO: 替换为你的生产环境地址

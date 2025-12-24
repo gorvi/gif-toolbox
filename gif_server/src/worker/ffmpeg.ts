@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
+import { nanoid } from 'nanoid'
+import { CONFIG } from '../common/config.js'
 
 export type TextConfig = {
   content: string
@@ -43,14 +45,34 @@ export type VideoToGifOptions = {
   cropConfig?: CropConfig
 }
 
+export type VideoToLiveOptions = {
+  inputPath: string
+  outputVideoPath: string  // 短视频输出路径
+  outputImagePath: string  // 静态图片输出路径
+  startS: number
+  endS: number
+  width: number
+  keepAudio: boolean
+  qualityMode: 'STANDARD' | 'HIGH'
+}
+
 function run(cmd: string, args: string[]): Promise<{ code: number; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'] })
+    // 如果命令是 ffmpeg，使用配置的路径
+    const actualCmd = cmd === 'ffmpeg' ? CONFIG.FFMPEG_PATH : cmd
+    const p = spawn(actualCmd, args, { stdio: ['ignore', 'ignore', 'pipe'] })
     let stderr = ''
     p.stderr.on('data', (d) => {
       stderr += d.toString()
     })
-    p.on('error', reject)
+    p.on('error', (err) => {
+      // 提供更友好的错误信息
+      if (err.message && err.message.includes('ENOENT')) {
+        reject(new Error(`找不到 FFmpeg 可执行文件。请确保 FFmpeg 已安装并在 PATH 中，或设置环境变量 FFMPEG_PATH 指向 FFmpeg 的完整路径。当前配置: ${CONFIG.FFMPEG_PATH}`))
+      } else {
+        reject(err)
+      }
+    })
     p.on('close', (code) => resolve({ code: code ?? 0, stderr }))
   })
 }
@@ -339,5 +361,189 @@ export async function convertVideoToGifWithFfmpeg(opts: VideoToGifOptions): Prom
     if (code !== 0) {
       throw new Error(`ffmpeg 转码失败：${stderr.slice(-800)}`)
     }
+  }
+}
+
+export async function convertVideoToLiveWithFfmpeg(opts: VideoToLiveOptions): Promise<void> {
+  // 生成唯一的 ContentIdentifier（Live Photo 要求）
+  // 使用 UUID 格式，符合 iOS Live Photo 规范
+  const contentIdentifier = `A7CE48EE-${nanoid(8).toUpperCase()}-${nanoid(4).toUpperCase()}-${nanoid(4).toUpperCase()}-${nanoid(12).toUpperCase()}`
+  const duration = Math.max(0.1, opts.endS - opts.startS)
+  const frameTime = opts.startS + duration / 2  // 提取中间帧作为静态图片
+
+  // 1. 生成静态图片（从视频中间帧提取）
+  {
+    const scale = `scale=${opts.width}:-2:flags=lanczos`
+    const args = [
+      '-hide_banner',
+      '-y',
+      '-ss',
+      String(frameTime),
+      '-i',
+      opts.inputPath,
+      '-vf',
+      scale,
+      '-vframes',
+      '1',
+      '-q:v',
+      '2',  // 高质量 JPEG
+      opts.outputImagePath,
+    ]
+    console.log('[FFmpeg] live image args:', args.join(' '))
+    const { code, stderr } = await run('ffmpeg', args)
+    if (code !== 0) {
+      throw new Error(`ffmpeg 提取静态图片失败：${stderr.slice(-800)}`)
+    }
+  }
+
+  // 2. 生成短视频（MOV 格式，Live Photo 要求）
+  {
+    const scale = `scale=${opts.width}:-2:flags=lanczos`
+    const audioArgs = opts.keepAudio
+      ? ['-c:a', 'aac', '-b:a', '96k']
+      : ['-an']
+
+    const crf = opts.qualityMode === 'HIGH' ? '23' : '28'
+
+    const args = [
+      '-hide_banner',
+      '-y',
+      '-ss',
+      String(opts.startS),
+      '-t',
+      String(duration),
+      '-i',
+      opts.inputPath,
+      '-vf',
+      scale,
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-crf',
+      crf,
+      '-pix_fmt',
+      'yuv420p',
+      ...audioArgs,
+      '-movflags',
+      '+faststart',
+      '-f',
+      'mov',  // 强制使用 MOV 格式（Live Photo 要求）
+      opts.outputVideoPath,
+    ]
+    console.log('[FFmpeg] live video args:', args.join(' '))
+    const { code, stderr } = await run('ffmpeg', args)
+    if (code !== 0) {
+      throw new Error(`ffmpeg 转码失败：${stderr.slice(-800)}`)
+    }
+  }
+
+  // 3. 添加 Live Photo 元数据（ContentIdentifier）
+  try {
+    await addLivePhotoMetadata(opts.outputImagePath, opts.outputVideoPath, contentIdentifier)
+    console.log('[FFmpeg] Live Photo 元数据已添加，ContentIdentifier:', contentIdentifier)
+  } catch (err: any) {
+    console.warn('[FFmpeg] 添加 Live Photo 元数据失败（文件仍可用）:', err.message)
+    // 不抛出错误，即使元数据添加失败，文件仍然可用
+  }
+}
+
+/**
+ * 为 Live Photo 文件添加元数据（ContentIdentifier）
+ * 使用 exiftool 或 FFmpeg 添加元数据
+ */
+export async function addLivePhotoMetadata(
+  imagePath: string,
+  videoPath: string,
+  contentIdentifier: string,
+): Promise<void> {
+  // 方案 1: 使用 exiftool（如果已安装）
+  const exiftoolPath = CONFIG.EXIFTOOL_PATH
+  
+  try {
+    // 为图片添加 ContentIdentifier
+    {
+      const args = [
+        '-overwrite_original',
+        `-ContentIdentifier=${contentIdentifier}`,
+        imagePath,
+      ]
+      const { code, stderr } = await run(exiftoolPath, args)
+      if (code !== 0) {
+        console.warn(`exiftool 添加图片元数据失败，尝试使用 FFmpeg: ${stderr.slice(-200)}`)
+        // 如果 exiftool 失败，尝试使用 FFmpeg
+        await addMetadataWithFfmpeg(imagePath, 'ContentIdentifier', contentIdentifier)
+      }
+    }
+
+    // 为视频添加 ContentIdentifier
+    {
+      const args = [
+        '-overwrite_original',
+        `-com.apple.quicktime.content.identifier=${contentIdentifier}`,
+        videoPath,
+      ]
+      const { code, stderr } = await run(exiftoolPath, args)
+      if (code !== 0) {
+        console.warn(`exiftool 添加视频元数据失败，尝试使用 FFmpeg: ${stderr.slice(-200)}`)
+        // 如果 exiftool 失败，尝试使用 FFmpeg
+        await addMetadataWithFfmpeg(videoPath, 'com.apple.quicktime.content.identifier', contentIdentifier)
+      }
+    }
+  } catch (err: any) {
+    // exiftool 未安装，使用 FFmpeg 添加元数据
+    console.warn('exiftool 不可用，使用 FFmpeg 添加元数据:', err.message)
+    await addMetadataWithFfmpeg(imagePath, 'ContentIdentifier', contentIdentifier)
+    await addMetadataWithFfmpeg(videoPath, 'com.apple.quicktime.content.identifier', contentIdentifier)
+  }
+}
+
+/**
+ * 使用 FFmpeg 添加元数据（备用方案）
+ * 注意：FFmpeg 对某些元数据的支持有限，可能无法完全替代 exiftool
+ */
+async function addMetadataWithFfmpeg(
+  filePath: string,
+  metadataKey: string,
+  metadataValue: string,
+): Promise<void> {
+  const tempPath = filePath + '.tmp'
+  
+  try {
+    // 对于视频文件，使用 -metadata 参数
+    if (filePath.endsWith('.mov') || filePath.endsWith('.mp4')) {
+      const args = [
+        '-hide_banner',
+        '-y',
+        '-i',
+        filePath,
+        '-metadata',
+        `${metadataKey}=${metadataValue}`,
+        '-codec',
+        'copy',  // 复制流，不重新编码
+        tempPath,
+      ]
+      
+      const { code, stderr } = await run('ffmpeg', args)
+      if (code !== 0) {
+        throw new Error(`FFmpeg 添加视频元数据失败：${stderr.slice(-800)}`)
+      }
+    } else {
+      // 对于图片文件，FFmpeg 可能无法添加 EXIF 元数据
+      // 这种情况下，我们只记录警告，不抛出错误
+      console.warn(`FFmpeg 无法为图片文件添加 ${metadataKey} 元数据，建议安装 exiftool`)
+      return
+    }
+    
+    // 替换原文件
+    if (fs.existsSync(tempPath)) {
+      fs.renameSync(tempPath, filePath)
+    }
+  } catch (err: any) {
+    // 清理临时文件
+    if (fs.existsSync(tempPath)) {
+      fs.unlinkSync(tempPath)
+    }
+    throw err
   }
 }

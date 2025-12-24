@@ -327,7 +327,7 @@
   </view>
 
   <!-- 底部导航栏（类似剪映） -->
-  <view class="bottom-nav-bar safe-area {{textActiveTab && textActiveTab !== 'none' ? 'bottom-nav-bar-hidden' : ''}}">
+  <view class="bottom-nav-bar safe-area {{keyboardHeightPx > 0 ? 'bottom-nav-bar-hidden' : ''}}">
     <view class="bottom-nav-item" bindtap="onClickCropTool">
       <view class="bottom-nav-icon">✂</view>
       <text class="bottom-nav-label">剪辑</text>
@@ -339,9 +339,9 @@
   </view>
 
   <!-- 抽屉式编辑组件（类似剪映） -->
-  <view class="edit-drawer-mask {{textActiveTab && textActiveTab !== 'none' ? 'edit-drawer-mask-show' : ''}}" wx:if="{{textActiveTab && textActiveTab !== 'none'}}" catchtap="onDrawerMaskTap"></view>
-  <view class="edit-drawer {{textActiveTab && textActiveTab !== 'none' ? 'edit-drawer-show' : ''}} {{keyboardHeightPx <= 0 ? 'edit-drawer-fill' : ''}}" wx:if="{{textActiveTab && textActiveTab !== 'none'}}" style="{{keyboardHeightPx > 0 ? ('height: ' + drawerHeightVh + 'vh; bottom: ' + keyboardHeightPx + 'px;') : ('top: ' + drawerTopPx + 'px; bottom: 0; height: auto;')}}">
-    <view class="drawer-close-fab" bindtap="onCloseEditComponent">完成</view>
+  <view class="edit-drawer-mask {{textActiveTab && textActiveTab !== 'none' ? 'edit-drawer-mask-show' : ''}}" wx:if="{{textActiveTab && textActiveTab !== 'none'}}" catchtap="onDrawerMaskTap" style="{{keyboardHeightPx <= 0 ? 'bottom: calc(120rpx + env(safe-area-inset-bottom));' : ''}}"></view>
+  <view class="edit-drawer {{textActiveTab && textActiveTab !== 'none' ? 'edit-drawer-show' : ''}} {{keyboardHeightPx <= 0 ? 'edit-drawer-fill' : ''}}" wx:if="{{textActiveTab && textActiveTab !== 'none'}}" style="{{keyboardHeightPx > 0 ? ('height: ' + drawerHeightVh + 'vh; bottom: ' + keyboardHeightPx + 'px;') : ('top: ' + drawerTopPx + 'px; bottom: calc(120rpx + env(safe-area-inset-bottom)); height: auto;')}}">
+    <view class="drawer-close-fab" bindtap="onCloseEditComponent">确认</view>
     
     <!-- 文字编辑组件 -->
     <view class="edit-component">

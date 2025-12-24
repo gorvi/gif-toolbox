@@ -662,7 +662,9 @@ Page({
     }, 200)
   },
 
-  onDrawerMaskTap() {},
+  onDrawerMaskTap() {
+    this.onCloseEditComponent()
+  },
 
   onTextInputFocus(e) {
     const keyboardHeight = Math.max(0, Number((e && e.detail && e.detail.height) || 0))

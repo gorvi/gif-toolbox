@@ -5,7 +5,7 @@ import { nanoid } from 'nanoid'
 import { CONFIG } from '../common/config.js'
 import { get, initDb, openDb, run, all } from '../common/db.js'
 import { TASK_STATUS, TASK_TYPE, type FileRow, type TaskRow } from '../common/types.js'
-import { convertVideoToGifWithFfmpeg } from './ffmpeg.js'
+import { convertVideoToGifWithFfmpeg, convertVideoToLiveWithFfmpeg } from './ffmpeg.js'
 import { cleanupExpired } from './cleanup.js'
 
 function ensureDir(p: string) {
@@ -23,8 +23,8 @@ ensureDir(path.join(CONFIG.DATA_DIR, 'tmp'))
 async function claimOneQueuedTask(): Promise<TaskRow | null> {
   const row = await get<TaskRow>(
     db,
-    `SELECT * FROM tasks WHERE status = ? AND type = ? ORDER BY created_at_ms ASC LIMIT 1`,
-    [TASK_STATUS.QUEUED, TASK_TYPE.VIDEO_TO_GIF],
+    `SELECT * FROM tasks WHERE status = ? ORDER BY created_at_ms ASC LIMIT 1`,
+    [TASK_STATUS.QUEUED],
   )
   if (!row) return null
 
@@ -150,6 +150,98 @@ async function processVideoToGif(task: TaskRow) {
   await setTaskSuccess(task.id, outId)
 }
 
+async function processVideoToLive(task: TaskRow) {
+  const params = JSON.parse(task.params_json) as {
+    startS: number
+    endS: number
+    width: number
+    keepAudio: boolean
+    qualityMode: 'STANDARD' | 'HIGH'
+  }
+
+  const duration = params.endS - params.startS
+  if (duration <= 0) throw new Error('截取范围不合法')
+  if (duration > CONFIG.MAX_LIVE_DURATION_S) throw new Error(`最多截取${CONFIG.MAX_LIVE_DURATION_S}秒`)
+
+  const input = await get<FileRow>(db, `SELECT * FROM files WHERE id = ?`, [task.input_file_id])
+  if (!input) throw new Error('找不到输入文件')
+
+  const outId = nanoid()
+  const outVideoPath = path.join(CONFIG.DATA_DIR, 'outputs', `${outId}.mov`)  // 使用 MOV 格式（Live Photo 要求）
+  const outImagePath = path.join(CONFIG.DATA_DIR, 'outputs', `${outId}.jpg`)
+
+  await setTaskProgress(task.id, 10)
+  await convertVideoToLiveWithFfmpeg({
+    inputPath: input.abs_path,
+    outputVideoPath: outVideoPath,
+    outputImagePath: outImagePath,
+    startS: params.startS,
+    endS: params.endS,
+    width: params.width,
+    keepAudio: !!params.keepAudio,
+    qualityMode: params.qualityMode,
+  })
+  await setTaskProgress(task.id, 80)
+
+  const now = Date.now()
+  
+  // 保存视频文件
+  const videoSt = fs.statSync(outVideoPath)
+  const videoRow: FileRow = {
+    id: outId,
+    kind: 'output',
+    original_name: `${outId}.mov`,  // MOV 格式（Live Photo 要求）
+    mime_type: 'video/quicktime',  // QuickTime MIME 类型
+    size_bytes: videoSt.size,
+    abs_path: outVideoPath,
+    created_at_ms: now,
+  }
+  await run(
+    db,
+    `INSERT INTO files (id, kind, original_name, mime_type, size_bytes, abs_path, created_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      videoRow.id,
+      videoRow.kind,
+      videoRow.original_name,
+      videoRow.mime_type,
+      videoRow.size_bytes,
+      videoRow.abs_path,
+      videoRow.created_at_ms,
+    ],
+  )
+
+  // 保存图片文件
+  const imageSt = fs.statSync(outImagePath)
+  const imageId = `${outId}_img`
+  const imageRow: FileRow = {
+    id: imageId,
+    kind: 'output',
+    original_name: `${outId}.jpg`,
+    mime_type: 'image/jpeg',
+    size_bytes: imageSt.size,
+    abs_path: outImagePath,
+    created_at_ms: now,
+  }
+  await run(
+    db,
+    `INSERT INTO files (id, kind, original_name, mime_type, size_bytes, abs_path, created_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      imageRow.id,
+      imageRow.kind,
+      imageRow.original_name,
+      imageRow.mime_type,
+      imageRow.size_bytes,
+      imageRow.abs_path,
+      imageRow.created_at_ms,
+    ],
+  )
+
+  await setTaskProgress(task.id, 90)
+  await setTaskSuccess(task.id, outId)  // 使用视频文件ID作为主输出
+}
+
 async function mainLoop() {
   while (true) {
     const task = await claimOneQueuedTask()
@@ -158,7 +250,13 @@ async function mainLoop() {
       continue
     }
     try {
-      await processVideoToGif(task)
+      if (task.type === TASK_TYPE.VIDEO_TO_GIF) {
+        await processVideoToGif(task)
+      } else if (task.type === TASK_TYPE.VIDEO_TO_LIVE) {
+        await processVideoToLive(task)
+      } else {
+        throw new Error(`不支持的任务类型: ${task.type}`)
+      }
     } catch (e: any) {
       await setTaskFailed(task.id, e?.message || '转码失败')
     }
