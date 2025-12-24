@@ -213,6 +213,13 @@
   color: #fff;
 }
 
+.banner-btn-orange {
+  background: linear-gradient(135deg, rgba(255, 153, 0, 0.82), rgba(255, 110, 0, 0.82));
+  border: 1rpx solid rgba(255, 153, 0, 0.12);
+  box-shadow: 0 10rpx 22rpx rgba(255, 153, 0, 0.18);
+  color: #fff;
+}
+
 .banner-theme-green .banner-title {
   color: rgba(0, 0, 0, 0.86);
 }
@@ -226,5 +233,9 @@
 }
 
 .banner-theme-gray .banner-title {
+  color: rgba(0, 0, 0, 0.86);
+}
+
+.banner-theme-orange .banner-title {
   color: rgba(0, 0, 0, 0.86);
 }
