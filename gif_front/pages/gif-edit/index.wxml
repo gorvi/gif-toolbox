@@ -1,0 +1,451 @@
+<view class="page safe-area {{activeTool === 'text' ? 'page-text-open' : ''}}">
+  <view class="top-toolbar" wx:if="{{activeTool !== 'text'}}">
+    <view class="top-toolbar-left"></view>
+    <view class="top-toolbar-right">
+      <view class="top-toolbar-export {{processing ? 'top-toolbar-export-disabled' : ''}}" wx:if="{{inputPath}}" bindtap="onGenerate">
+        <text class="top-toolbar-export-text">{{primaryActionText}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="panel glass-strong">
+    <view class="preview">
+      <block wx:if="{{inputPath}}">
+        <view
+          class="gif-container {{(drawerOverlapsPreview && activeTool !== 'text') ? 'gif-container-with-drawer' : ''}}"
+          id="gifContainer"
+          bindtouchstart="onGestureStart"
+          bindtouchmove="onGestureMove"
+          bindtouchend="onGestureEnd"
+          bindtouchcancel="onGestureEnd"
+        >
+          <view
+            class="gif-stage"
+            id="gifStage"
+            style="left: {{gifStage.leftPx}}px; top: {{gifStage.topPx}}px; width: {{gifStage.widthPx}}px; height: {{gifStage.heightPx}}px;"
+          >
+            <image class="gif-img" style="{{rotatePreviewTransformStyle}}" src="{{gifDisplaySrc || inputPath}}" mode="scaleToFill" bindload="onGifImageLoad" binderror="onGifImageError" />
+            <view class="gif-play-fab" wx:if="{{activeTool === 'none'}}" catchtap="onToggleGifPlay">{{gifPlaying ? '暂停' : '播放'}}</view>
+
+            <view class="crop-preview-overlay {{activeTool === 'crop' ? 'crop-editing' : ''}}" wx:if="{{cropPreviewConfig}}">
+              <view class="crop-preview-mask crop-preview-mask-top" style="height: {{cropPreviewConfig.y}}%;"></view>
+              <view class="crop-preview-mask crop-preview-mask-bottom" style="top: {{cropPreviewConfig.y + cropPreviewConfig.height}}%; height: {{100 - cropPreviewConfig.y - cropPreviewConfig.height}}%;"></view>
+              <view class="crop-preview-mask crop-preview-mask-left" style="top: {{cropPreviewConfig.y}}%; left: 0; width: {{cropPreviewConfig.x}}%; height: {{cropPreviewConfig.height}}%;"></view>
+              <view class="crop-preview-mask crop-preview-mask-right" style="top: {{cropPreviewConfig.y}}%; left: {{cropPreviewConfig.x + cropPreviewConfig.width}}%; width: {{100 - cropPreviewConfig.x - cropPreviewConfig.width}}%; height: {{cropPreviewConfig.height}}%;"></view>
+              <view class="crop-preview-box {{cropDragging ? 'crop-dragging' : ''}}" style="left: {{cropPreviewConfig.x}}%; top: {{cropPreviewConfig.y}}%; width: {{cropPreviewConfig.width}}%; height: {{cropPreviewConfig.height}}%;">
+                <view wx:if="{{activeTool === 'crop'}}" class="crop-drag-area" data-type="move" catchtouchstart="onCropDragStart" catchtouchmove="onCropDragMove" catchtouchend="onCropDragEnd" catchtouchcancel="onCropDragEnd"></view>
+                <view wx:if="{{activeTool === 'crop'}}" class="crop-handle crop-handle-tl" data-type="resize-tl" catchtouchstart="onCropDragStart" catchtouchmove="onCropDragMove" catchtouchend="onCropDragEnd" catchtouchcancel="onCropDragEnd"></view>
+                <view wx:if="{{activeTool === 'crop'}}" class="crop-handle crop-handle-tr" data-type="resize-tr" catchtouchstart="onCropDragStart" catchtouchmove="onCropDragMove" catchtouchend="onCropDragEnd" catchtouchcancel="onCropDragEnd"></view>
+                <view wx:if="{{activeTool === 'crop'}}" class="crop-handle crop-handle-bl" data-type="resize-bl" catchtouchstart="onCropDragStart" catchtouchmove="onCropDragMove" catchtouchend="onCropDragEnd" catchtouchcancel="onCropDragEnd"></view>
+                <view wx:if="{{activeTool === 'crop'}}" class="crop-handle crop-handle-br" data-type="resize-br" catchtouchstart="onCropDragStart" catchtouchmove="onCropDragMove" catchtouchend="onCropDragEnd" catchtouchcancel="onCropDragEnd"></view>
+              </view>
+            </view>
+
+            <view class="text-preview {{activeTool === 'text' ? 'text-editing' : ''}}" wx:if="{{textConfig && textConfig.text}}" style="left: {{textConfig.xPct}}%; top: {{textConfig.yPct}}%;">
+              <view class="text-drag-box {{textDragging ? 'text-dragging' : ''}}" wx:if="{{activeTool === 'text'}}" bindtouchstart="onTextDragStart" bindtouchmove="onTextDragMove" bindtouchend="onTextDragEnd" bindtouchcancel="onTextDragEnd">
+                <view class="text-delete-btn" catchtap="onTextDelete">×</view>
+                <view class="text-content-wrap" style="{{textConfig._bgStyle}}">
+                  <block wx:for="{{textPreviewLines}}" wx:key="index">
+                    <text class="text-line" style="color: {{textConfig.color}}; {{textConfig._fontStyle}} {{textConfig._strokeStyle}} text-shadow: {{textConfig._shadowStyle}}; {{textConfig._animStyle}}">{{item}}</text>
+                  </block>
+                </view>
+              </view>
+              <view class="text-drag-box" wx:else>
+                <view class="text-content-wrap" style="{{textConfig._bgStyle}}">
+                  <block wx:for="{{textPreviewLines}}" wx:key="index">
+                    <text class="text-line" style="color: {{textConfig.color}}; {{textConfig._fontStyle}} {{textConfig._strokeStyle}} text-shadow: {{textConfig._shadowStyle}}; {{textConfig._animStyle}}">{{item}}</text>
+                  </block>
+                </view>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <scroll-view class="tool-strip" scroll-x="{{true}}" scroll-with-animation="{{false}}" wx:if="{{activeTool !== 'text'}}">
+          <view class="tool-strip-row">
+            <view class="tool-chip {{activeTool === 'crop' ? 'tool-chip-active' : ''}}" bindtap="onOpenTool" data-tool="crop">
+              <text class="tool-chip-icon">✂</text>
+              <text class="tool-chip-label">裁剪</text>
+              <view class="tool-chip-dot" wx:if="{{cropAspect !== 'none'}}"></view>
+            </view>
+            <view class="tool-chip {{activeTool === 'trim' ? 'tool-chip-active' : ''}}" bindtap="onOpenTool" data-tool="trim">
+              <text class="tool-chip-icon">⏱</text>
+              <text class="tool-chip-label">删帧</text>
+              <view class="tool-chip-dot" wx:if="{{trimDeletedCount}}"></view>
+            </view>
+            <view class="tool-chip {{activeTool === 'text' ? 'tool-chip-active' : ''}}" bindtap="onOpenTool" data-tool="text">
+              <text class="tool-chip-icon">T</text>
+              <text class="tool-chip-label">文字</text>
+              <view class="tool-chip-dot" wx:if="{{textConfig && textConfig.text}}"></view>
+            </view>
+            <view class="tool-chip {{activeTool === 'compress' ? 'tool-chip-active' : ''}}" bindtap="onOpenTool" data-tool="compress">
+              <text class="tool-chip-icon">压</text>
+              <text class="tool-chip-label">压缩</text>
+              <view class="tool-chip-dot" wx:if="{{qualityMode !== 'HIGH' || maxSideIndex !== 0 || frameStepIndex !== 0}}"></view>
+            </view>
+            <view class="tool-chip {{activeTool === 'rotate' ? 'tool-chip-active' : ''}}" bindtap="onOpenTool" data-tool="rotate">
+              <text class="tool-chip-icon">⟳</text>
+              <text class="tool-chip-label">旋转</text>
+              <view class="tool-chip-dot" wx:if="{{rotatePreviewMode !== 'none'}}"></view>
+            </view>
+            <view class="tool-chip {{activeTool === 'resize' ? 'tool-chip-active' : ''}}" bindtap="onOpenTool" data-tool="resize">
+              <text class="tool-chip-icon">⇲</text>
+              <text class="tool-chip-label">缩放</text>
+              <view class="tool-chip-dot" wx:if="{{resizeScalePct !== 100}}"></view>
+            </view>
+          </view>
+        </scroll-view>
+
+        <view class="meta-row" wx:if="{{activeTool !== 'text'}}">
+          <view class="meta-group">
+            <view class="meta-group-label">原参数</view>
+            <view class="meta-group-body meta-group-body-nowrap">
+              <view class="meta-pill meta-pill-compact">
+                <text class="meta-text meta-text-ellipsis">{{inputInfoText}}</text>
+              </view>
+              <view class="meta-pill meta-pill-tap meta-pill-btn meta-pill-btn-secondary" bindtap="onChooseSource">
+                <text class="meta-text">更换</text>
+              </view>
+            </view>
+          </view>
+          <view class="meta-group">
+            <view class="meta-group-label">修改参数</view>
+            <view class="meta-group-body">
+              <view class="meta-pill meta-pill-tap {{cropAspect !== 'none' ? 'meta-pill-green' : 'meta-pill-off'}}" bindtap="onOpenTool" data-tool="crop">
+                <text class="meta-text">裁剪：{{cropAspect !== 'none' ? cropAspect : '关'}}</text>
+              </view>
+              <view class="meta-pill meta-pill-tap {{trimDeletedCount ? 'meta-pill-green' : 'meta-pill-off'}}" bindtap="onOpenTool" data-tool="trim">
+                <text class="meta-text">删帧：-{{trimDeletedCount || 0}}</text>
+              </view>
+              <view class="meta-pill meta-pill-tap {{(textConfig && textConfig.text) ? 'meta-pill-green' : 'meta-pill-off'}}" bindtap="onOpenTool" data-tool="text">
+                <text class="meta-text">文字：{{(textConfig && textConfig.text) ? '开' : '关'}}</text>
+              </view>
+              <view class="meta-pill meta-pill-tap {{qualityMode === 'HIGH' ? 'meta-pill-off' : 'meta-pill-green'}}" bindtap="onOpenTool" data-tool="compress">
+                <text class="meta-text">画质：{{metaQualityText}}</text>
+              </view>
+              <view class="meta-pill meta-pill-tap {{maxSideIndex === 0 ? 'meta-pill-off' : 'meta-pill-green'}}" bindtap="onOpenTool" data-tool="compress">
+                <text class="meta-text">长边：{{maxSideLabels[maxSideIndex]}}</text>
+              </view>
+              <view class="meta-pill meta-pill-tap {{frameStepIndex === 0 ? 'meta-pill-off' : 'meta-pill-green'}}" bindtap="onOpenTool" data-tool="compress">
+                <text class="meta-text">抽帧：{{frameStepLabels[frameStepIndex]}}</text>
+              </view>
+              <view class="meta-pill meta-pill-tap {{rotatePreviewMode === 'none' ? 'meta-pill-off' : 'meta-pill-green'}}" bindtap="onOpenTool" data-tool="rotate">
+                <text class="meta-text">旋转预览：{{rotatePreviewLabel}}</text>
+              </view>
+              <view class="meta-pill meta-pill-tap {{resizeScalePct === 100 ? 'meta-pill-off' : 'meta-pill-green'}}" bindtap="onOpenTool" data-tool="resize">
+                <text class="meta-text">缩放：{{resizeScalePct}}%</text>
+              </view>
+              <view class="meta-pill meta-pill-tap meta-pill-btn {{outputDirty ? 'meta-pill-btn-warn' : 'meta-pill-btn-primary'}}" wx:if="{{outPath}}" bindtap="onPreviewImage" data-src="{{outPath}}">
+                <text class="meta-text">输出：{{outputDirty ? '已过期' : '预览'}}</text>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <view class="result-row" wx:if="{{outPath && activeTool !== 'text'}}">
+          <view class="result-title">预览</view>
+          <image class="result-img" src="{{outPath}}" mode="aspectFit" bindtap="onPreviewImage" data-src="{{outPath}}" />
+          <view class="result-sub">
+            <text>{{outSizeText}}</text>
+            <text class="out-stale" wx:if="{{outputDirty}}"> · 已过期</text>
+          </view>
+          <view class="result-actions">
+            <button class="btn btn-ghost" bindtap="onSave">保存到相册</button>
+          </view>
+        </view>
+      </block>
+
+      <view class="placeholder" wx:else>
+        <view class="placeholder-title">选择GIF</view>
+        <view class="placeholder-desc">建议优先用“聊天图片/文件”选择</view>
+        <view class="placeholder-actions">
+          <view class="ui-btn ui-btn-green" bindtap="onChooseSource">
+            <text class="ui-btn-icon">＋</text>
+            <text class="ui-btn-label">选择GIF</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="edit-drawer-mask edit-drawer-mask-show" wx:if="{{activeTool && activeTool !== 'none' && activeTool !== 'crop' && activeTool !== 'text'}}" catchtap="onCloseTool"></view>
+  <view class="edit-drawer-mask edit-drawer-mask-pass" wx:if="{{activeTool === 'crop' || activeTool === 'text'}}"></view>
+  <view id="editDrawer" class="edit-drawer {{activeTool && activeTool !== 'none' ? 'edit-drawer-show' : ''}} {{activeTool === 'trim' ? 'edit-drawer-trim' : ''}} {{activeTool === 'text' ? 'edit-drawer-text' : ''}}" wx:if="{{activeTool && activeTool !== 'none'}}" style="{{(activeTool === 'text' && textKeyboardHeightPx > 0) ? ('bottom: ' + textKeyboardHeightPx + 'px; height: 22vh; max-height: 22vh;') : ''}}">
+    <view class="drawer-action-row">
+      <view class="drawer-cancel-fab" bindtap="onCancelTool">取消</view>
+      <view class="drawer-close-fab" bindtap="onCloseTool">确认</view>
+    </view>
+    <view class="edit-component">
+      <view class="drawer-title-row">
+        <view class="drawer-title">{{activeToolTitle}}</view>
+        <view class="drawer-title-hint" wx:if="{{activeTool === 'text'}}">拖动预览区文字可调整位置</view>
+      </view>
+
+      <view class="tool-pane" wx:if="{{activeTool === 'crop'}}">
+        <view class="crop-ratio-label">裁剪比例</view>
+        <scroll-view class="chip-scroll" scroll-x="{{true}}">
+          <view class="chip-row">
+            <view class="chip {{cropAspect === 'none' ? 'chip-active' : ''}}" data-ratio="none" bindtap="onCropAspectChange">不裁剪</view>
+            <view class="chip {{cropAspect === 'free' ? 'chip-active' : ''}}" data-ratio="free" bindtap="onCropAspectChange">自由</view>
+            <view class="chip {{cropAspect === '1:1' ? 'chip-active' : ''}}" data-ratio="1:1" bindtap="onCropAspectChange">1:1</view>
+            <view class="chip {{cropAspect === '4:3' ? 'chip-active' : ''}}" data-ratio="4:3" bindtap="onCropAspectChange">4:3</view>
+            <view class="chip {{cropAspect === '3:4' ? 'chip-active' : ''}}" data-ratio="3:4" bindtap="onCropAspectChange">3:4</view>
+            <view class="chip {{cropAspect === '16:9' ? 'chip-active' : ''}}" data-ratio="16:9" bindtap="onCropAspectChange">16:9</view>
+            <view class="chip {{cropAspect === '9:16' ? 'chip-active' : ''}}" data-ratio="9:16" bindtap="onCropAspectChange">9:16</view>
+          </view>
+        </scroll-view>
+        <view class="tool-hint">拖动/缩放裁剪框调整区域</view>
+      </view>
+
+      <view class="tool-pane" wx:if="{{activeTool === 'trim'}}">
+        <view class="trim-stats" wx:if="{{inputFrames}}">
+          <text class="trim-stat">已选{{trimSelectedCount}}帧</text>
+          <text class="trim-stat">已删{{trimDeletedCount}}帧</text>
+        </view>
+        <view class="trim-cta-bar {{trimSelectedCount ? 'trim-cta-bar-on' : ''}}">
+          <view class="trim-cta-left">
+            <view class="tool-chip trim-chip" bindtap="onTrimSelectAll">
+              <text class="tool-chip-icon">全</text>
+              <text class="tool-chip-label">全选</text>
+            </view>
+            <view class="tool-chip trim-chip" bindtap="onTrimClearSelection">
+              <text class="tool-chip-icon">清</text>
+              <text class="tool-chip-label">清空</text>
+            </view>
+            <view class="tool-chip trim-chip" bindtap="onTrimRestoreSelected">
+              <text class="tool-chip-icon">复</text>
+              <text class="tool-chip-label">恢复</text>
+            </view>
+            <view class="tool-chip trim-chip" bindtap="onTrimPreview">
+              <text class="tool-chip-icon">预</text>
+              <text class="tool-chip-label">预览</text>
+            </view>
+          </view>
+          <view class="trim-cta-right">
+            <view class="tool-chip trim-chip trim-chip-delete {{trimSelectedCount ? 'trim-chip-delete-on' : 'trim-chip-disabled'}} {{trimDeletePulse ? 'trim-chip-pulse' : ''}}" bindtap="onTrimDeleteSelected">
+              <text class="tool-chip-icon">删</text>
+              <text class="tool-chip-label">{{trimSelectedCount ? ('删除 ' + trimSelectedCount + ' 帧') : '删除'}}</text>
+            </view>
+          </view>
+        </view>
+        <view class="trim-cta-hint" wx:if="{{trimSelectedCount}}">
+          <text class="trim-cta-hint-text">将从输出中移除，可用“恢复”撤销</text>
+        </view>
+        <view class="tool-hint tool-hint-warn" wx:if="{{trimThumbHint}}">{{trimThumbHint}}</view>
+        <scroll-view class="trim-frame-scroll" scroll-y="{{true}}" scroll-with-animation="{{false}}">
+          <view class="trim-frame-grid">
+            <view
+              class="trim-frame-item {{trimSelected[item.index] ? 'trim-frame-selected' : ''}} {{trimDeleted[item.index] ? 'trim-frame-deleted' : ''}}"
+              wx:for="{{trimThumbs}}"
+              wx:key="index"
+              data-index="{{item.index}}"
+              bindtap="onTrimThumbTap"
+            >
+              <image class="trim-frame-img" src="{{item.src}}" mode="aspectFill" wx:if="{{item.src}}"></image>
+              <view class="trim-frame-placeholder" wx:else></view>
+              <view class="trim-frame-badge">{{item.index + 1}}</view>
+              <view class="trim-frame-check" wx:if="{{trimSelected[item.index]}}">✓</view>
+            </view>
+          </view>
+        </scroll-view>
+        <view class="tool-hint" wx:if="{{trimThumbLoading}}">{{trimThumbProgressText}}</view>
+        <view class="tool-hint">点选帧后点“删除”；帧越少体积越小</view>
+      </view>
+
+      <view class="tool-pane tool-pane-text" wx:if="{{activeTool === 'text'}}">
+        <scroll-view class="text-tabs-scroll" scroll-x="{{true}}" scroll-with-animation="{{false}}">
+          <view class="text-tabs">
+            <view class="text-tab {{textActiveTab === 'keyboard' ? 'text-tab-active' : ''}}" data-tab="keyboard" bindtap="onTextTabChange">文字</view>
+            <view class="text-tab {{textActiveTab === 'stroke' ? 'text-tab-active' : ''}}" data-tab="stroke" bindtap="onTextTabChange">描边</view>
+            <view class="text-tab {{textActiveTab === 'shadow' ? 'text-tab-active' : ''}}" data-tab="shadow" bindtap="onTextTabChange">阴影</view>
+            <view class="text-tab {{textActiveTab === 'bg' ? 'text-tab-active' : ''}}" data-tab="bg" bindtap="onTextTabChange">背景</view>
+            <view class="text-tab {{textActiveTab === 'animation' ? 'text-tab-active' : ''}}" data-tab="animation" bindtap="onTextTabChange">动画</view>
+          </view>
+        </scroll-view>
+
+        <view class="text-edit-content">
+          <view class="text-tab-pane" wx:if="{{textActiveTab === 'keyboard'}}">
+            <view class="input-row">
+              <textarea class="text-input" maxlength="30" placeholder="输入文字（支持换行）" value="{{textConfig.text}}" bindinput="onTextInput" bindfocus="onTextInputFocus" bindblur="onTextInputBlur" auto-height="{{true}}" adjust-position="{{false}}"></textarea>
+              <view class="text-input-counter">{{textInputCount}}/30</view>
+            </view>
+            <block wx:if="{{textKeyboardHeightPx <= 0}}">
+            <view class="slider-row">
+              <text class="slider-label">字号</text>
+              <slider class="slider" min="50" max="300" value="{{textConfig.textScalePct}}" step="1" show-value="{{true}}" bindchanging="onTextScaleChange" bindchange="onTextScaleChange" />
+            </view>
+            <view class="setting-row">
+              <text class="setting-label">颜色</text>
+              <scroll-view class="color-scroll" scroll-x="{{true}}" scroll-with-animation="{{false}}">
+                <view class="color-row">
+                  <view class="color-item {{textConfig.color === item ? 'color-item-active' : ''}}" wx:for="{{colorOptions}}" wx:key="*this" data-color="{{item}}" bindtap="onTextColorChange" style="background: {{item}};"></view>
+                </view>
+              </scroll-view>
+            </view>
+            <view class="slider-row">
+              <text class="slider-label">透明度</text>
+              <slider class="slider" min="0" max="100" value="{{textConfig.textOpacity}}" step="1" show-value="{{true}}" bindchange="onTextOpacityChange" />
+            </view>
+            </block>
+          </view>
+
+          <view class="text-tab-pane" wx:if="{{textActiveTab === 'stroke'}}">
+            <view class="setting-row">
+              <text class="setting-label">颜色</text>
+              <scroll-view class="color-scroll" scroll-x="{{true}}" scroll-with-animation="{{false}}">
+                <view class="color-row">
+                  <view class="color-pill {{!textConfig.strokeColor ? 'color-pill-active' : ''}}" data-color="" bindtap="onStrokeColorChange">无</view>
+                  <view class="color-item {{textConfig.strokeColor === item ? 'color-item-active' : ''}}" wx:for="{{colorOptions}}" wx:key="*this" data-color="{{item}}" bindtap="onStrokeColorChange" style="background: {{item}};"></view>
+                </view>
+              </scroll-view>
+            </view>
+            <view class="slider-row">
+              <text class="slider-label">粗细</text>
+              <slider class="slider" min="0" max="50" value="{{textConfig.strokeWidth}}" step="1" show-value="{{true}}" bindchange="onStrokeWidthChange" />
+            </view>
+            <view class="slider-row">
+              <text class="slider-label">透明度</text>
+              <slider class="slider" min="0" max="100" value="{{textConfig.strokeOpacity}}" step="1" show-value="{{true}}" bindchange="onStrokeOpacityChange" />
+            </view>
+          </view>
+
+          <view class="text-tab-pane" wx:if="{{textActiveTab === 'shadow'}}">
+            <view class="setting-row">
+              <text class="setting-label">颜色</text>
+              <scroll-view class="color-scroll" scroll-x="{{true}}" scroll-with-animation="{{false}}">
+                <view class="color-row">
+                  <view class="color-pill {{!textConfig.shadowColor ? 'color-pill-active' : ''}}" data-color="" bindtap="onShadowColorChange">无</view>
+                  <view class="color-item {{textConfig.shadowColor === item ? 'color-item-active' : ''}}" wx:for="{{colorOptions}}" wx:key="*this" data-color="{{item}}" bindtap="onShadowColorChange" style="background: {{item}};"></view>
+                </view>
+              </scroll-view>
+            </view>
+            <view class="slider-row">
+              <text class="slider-label">模糊</text>
+              <slider class="slider" min="0" max="100" value="{{textConfig.shadowBlur}}" step="1" show-value="{{true}}" bindchange="onShadowBlurChange" />
+            </view>
+            <view class="slider-row">
+              <text class="slider-label">距离</text>
+              <slider class="slider" min="0" max="100" value="{{textConfig.shadowDistance}}" step="1" show-value="{{true}}" bindchange="onShadowDistanceChange" />
+            </view>
+            <view class="slider-row">
+              <text class="slider-label">角度</text>
+              <slider class="slider" min="0" max="360" value="{{textConfig.shadowAngle}}" step="1" show-value="{{true}}" bindchange="onShadowAngleChange" />
+            </view>
+            <view class="slider-row">
+              <text class="slider-label">透明度</text>
+              <slider class="slider" min="0" max="100" value="{{textConfig.shadowOpacity}}" step="1" show-value="{{true}}" bindchange="onShadowOpacityChange" />
+            </view>
+          </view>
+
+          <view class="text-tab-pane" wx:if="{{textActiveTab === 'bg'}}">
+            <view class="setting-row">
+              <text class="setting-label">颜色</text>
+              <scroll-view class="color-scroll" scroll-x="{{true}}" scroll-with-animation="{{false}}">
+                <view class="color-row">
+                  <view class="color-pill {{!textConfig.bgColor ? 'color-pill-active' : ''}}" data-color="" bindtap="onBgColorChange">无</view>
+                  <view class="color-item {{textConfig.bgColor === item ? 'color-item-active' : ''}}" wx:for="{{colorOptions}}" wx:key="*this" data-color="{{item}}" bindtap="onBgColorChange" style="background: {{item}};"></view>
+                </view>
+              </scroll-view>
+            </view>
+            <view class="slider-row">
+              <text class="slider-label">透明度</text>
+              <slider class="slider" min="0" max="100" value="{{textConfig.bgOpacity}}" step="1" show-value="{{true}}" bindchange="onBgOpacityChange" />
+            </view>
+          </view>
+
+          <view class="text-tab-pane" wx:if="{{textActiveTab === 'animation'}}">
+            <view class="chip-row">
+              <view class="chip {{textConfig.animation === item.value ? 'chip-active' : ''}}" wx:for="{{animationOptions}}" wx:key="value" data-animation="{{item.value || 'none'}}" bindtap="onAnimationChange">{{item.label}}</view>
+            </view>
+            <view class="slider-row" wx:if="{{textConfig.animation}}">
+              <text class="slider-label">速度</text>
+              <slider class="slider" min="0.5" max="2" value="{{textConfig.animationSpeed}}" step="0.1" show-value="{{true}}" bindchange="onAnimationSpeedChange" />
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <view class="tool-pane" wx:if="{{activeTool === 'compress'}}">
+        <picker mode="selector" range="{{maxSideLabels}}" value="{{maxSideIndex}}" bindchange="onMaxSidePick">
+          <view class="switch-row switch-row-tap">
+            <text class="switch-label">长边</text>
+            <text class="switch-value">{{maxSideLabels[maxSideIndex]}}</text>
+          </view>
+        </picker>
+        <picker mode="selector" range="{{frameStepLabels}}" value="{{frameStepIndex}}" bindchange="onFrameStepPick">
+          <view class="switch-row switch-row-tap">
+            <text class="switch-label">抽帧</text>
+            <text class="switch-value">{{frameStepLabels[frameStepIndex]}}</text>
+          </view>
+        </picker>
+        <view class="switch-row">
+          <text class="switch-label">高画质</text>
+          <switch checked="{{qualityMode === 'HIGH'}}" bindchange="onQualityChange" color="#20c05c" />
+        </view>
+        <view class="tool-hint">高画质更好看；标准更快</view>
+      </view>
+
+      <view class="tool-pane tool-pane-coming" wx:if="{{activeTool === 'rotate'}}">
+        <view class="tool-coming-title">旋转</view>
+        <scroll-view scroll-x="{{true}}" class="chip-scroll" show-scrollbar="{{false}}">
+          <view class="chip-row">
+            <view class="chip {{rotatePreviewMode === item.value ? 'chip-active' : ''}}" wx:for="{{rotatePreviewOptions}}" wx:key="value" data-mode="{{item.value}}" bindtap="onRotatePreviewPick">{{item.label}}</view>
+          </view>
+        </scroll-view>
+        <view class="tool-hint">点击实时预览，不影响最终生成</view>
+      </view>
+
+      <view class="tool-pane tool-pane-coming" wx:if="{{activeTool === 'resize'}}">
+        <view class="tool-coming-title">缩放</view>
+        <scroll-view scroll-x="{{true}}" class="chip-scroll" show-scrollbar="{{false}}">
+          <view class="chip-row">
+            <view class="chip {{resizeScalePct === item ? 'chip-active' : ''}}" wx:for="{{resizePresets}}" wx:key="*this" data-pct="{{item}}" bindtap="onResizePreset">{{item}}%</view>
+          </view>
+        </scroll-view>
+        <view class="slider-row">
+          <text class="slider-label">缩放比例</text>
+          <slider class="slider" min="25" max="100" value="{{resizeScalePct}}" step="1" show-value="{{true}}" bindchange="onResizeSliderChange" />
+        </view>
+        <view class="tool-hint">缩放在“长边”基础上二次缩小</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="progress-overlay" wx:if="{{processing}}">
+    <view class="progress-card">
+      <progress percent="{{progressPercent}}" stroke-width="6" activeColor="#667eea" backgroundColor="rgba(0,0,0,0.08)" active="true" />
+      <view class="progress-text">{{progressText}}</view>
+    </view>
+  </view>
+
+  <view class="preview-modal {{previewModalVisible ? 'preview-modal-show' : ''}}" wx:if="{{previewModalVisible}}">
+    <view class="preview-hit-mask" catchtap="onClosePreviewModal"></view>
+    <view class="preview-viewer">
+      <view class="preview-close-float" catchtap="onClosePreviewModal">×</view>
+      <view class="preview-counter-top">{{previewModalIndex}}/{{previewModalTotal}}</view>
+      <image
+        class="preview-viewer-img"
+        src="{{previewModalSrc}}"
+        mode="aspectFit"
+        catchtap="onTogglePreviewControls"
+        bindtouchstart="onPreviewTouchStart"
+        bindtouchmove="onPreviewTouchMove"
+        bindtouchend="onPreviewTouchEnd"
+        bindtouchcancel="onPreviewTouchEnd"
+      />
+
+      <view class="preview-bottombar" wx:if="{{previewModalNavVisible}}">
+        <view class="preview-play-btn {{previewAutoplay ? 'preview-play-btn-on' : ''}}" catchtap="onTogglePreviewAutoplay">{{previewAutoplay ? '暂停' : '播放'}}</view>
+      </view>
+
+      <view class="preview-nav-zone preview-nav-zone-left {{previewControlsVisible ? 'preview-nav-zone-show' : 'preview-nav-zone-hide'}} {{previewModalCanPrev ? '' : 'preview-nav-zone-disabled'}}" wx:if="{{previewModalNavVisible}}" catchtap="onPreviewPrev">
+        <view class="preview-nav-icon">‹</view>
+      </view>
+      <view class="preview-nav-zone preview-nav-zone-right {{previewControlsVisible ? 'preview-nav-zone-show' : 'preview-nav-zone-hide'}} {{previewModalCanNext ? '' : 'preview-nav-zone-disabled'}}" wx:if="{{previewModalNavVisible}}" catchtap="onPreviewNext">
+        <view class="preview-nav-icon">›</view>
+      </view>
+    </view>
+  </view>
+
+  <canvas type="2d" id="workCanvas" class="hidden-canvas"></canvas>
+</view>

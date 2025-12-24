@@ -2,6 +2,8 @@
 
 const { clamp, toFixed1, formatMsLabel } = require('./utils')
 
+const MAIN_TIMELINE_SIDE_MARGIN_RPX = 36
+
 // 根据总时长选择每秒对应的像素数，让短视频更“细”，长视频更“粗略”
 function choosePixelsPerSecond(totalS) {
   const t = Math.max(0, Number(totalS || 0))
@@ -11,12 +13,19 @@ function choosePixelsPerSecond(totalS) {
   return 10
 }
 
-// 生成主时间线刻度（细分到 0.1 秒）
+function rpxToPx(rpx, windowWidthPx) {
+  const w = Math.max(0, Number(windowWidthPx || 0))
+  if (!w) return 0
+  return (Number(rpx || 0) * w) / 750
+}
+
+  // 生成主时间线刻度（相对整段视频，从 0s 开始）
 function buildMainTicks(totalS, pixelsPerSecond) {
   const ticks = []
   const duration = Math.max(0, Number(totalS || 0))
   if (!duration) return ticks
 
+  // 固定细分到 0.1 秒
   const stepS = 0.1
 
   for (let t = 0; t <= duration + 1e-6; t += stepS) {
@@ -54,7 +63,8 @@ function createMainTimeline(page) {
     try {
       const sys = wx.getSystemInfoSync()
       const w = sys.windowWidth || viewWidthPx
-      viewWidthPx = Math.floor(w * 0.8)
+      const marginPx = rpxToPx(MAIN_TIMELINE_SIDE_MARGIN_RPX, w)
+      viewWidthPx = Math.floor(Math.max(0, w - marginPx * 2))
     } catch (e) {
       // ignore
     }
@@ -75,10 +85,15 @@ function createMainTimeline(page) {
     previewTimer: null,
     lastSyncTs: 0,        // 上一次同步到页面的时间戳
     lastSyncTimeS: 0,     // 上一次同步的时间点
+    lastPlaySyncTs: 0,
+    lastPlayOffsetPx: 0,
+    lastRangeSyncTs: 0,
+    lastRangeStartPx: 0,
+    lastRangeWidthPx: 0,
     range: { startPx: 0, widthPx: 0 },
   }
 
-  function sync(extra) {
+  function syncFull(extra) {
     const merged = Object.assign(
       {},
       {
@@ -93,12 +108,27 @@ function createMainTimeline(page) {
         maxScrollLeft: state.maxScrollLeft,
         ticks: state.ticks,
         range: state.range,
+        manualScrolling: state.manualScrolling,
       },
       extra || {}
     )
     page.setData({
       mainTimeline: merged,
     })
+  }
+
+  function syncLight(extra) {
+    const patch = Object.assign(
+      {},
+      {
+        'mainTimeline.offsetPx': state.offsetPx,
+        'mainTimeline.playheadTimeS': state.playheadTimeS,
+        'mainTimeline.playheadTimeText': formatMsLabel(state.playheadTimeS),
+        'mainTimeline.manualScrolling': state.manualScrolling,
+      },
+      extra || {}
+    )
+    page.setData(patch)
   }
 
   // 根据当前 viewWidthPx / pixelsPerSecond / totalDurationS 重新计算 contentWidthPx、边界和 offsetPx
@@ -113,17 +143,36 @@ function createMainTimeline(page) {
     updateRangeFromPage()
   }
 
-  function updateRangeFromPage() {
+  function syncRangeOnly() {
+    if (!page || !page.data || !page.data.mainTimeline) return
+    const now = Date.now()
+    const dt = now - (state.lastRangeSyncTs || 0)
+    const dStart = Math.abs((state.range && state.range.startPx) - (state.lastRangeStartPx || 0))
+    const dWidth = Math.abs((state.range && state.range.widthPx) - (state.lastRangeWidthPx || 0))
+    if (dt < 16 && dStart < 0.5 && dWidth < 0.5) return
+    state.lastRangeSyncTs = now
+    state.lastRangeStartPx = state.range.startPx
+    state.lastRangeWidthPx = state.range.widthPx
+    page.setData({
+      'mainTimeline.range': state.range,
+    })
+  }
+
+  function updateRange(startS, endS) {
     if (!page || !page.data) return
-    const startS = Number(page.data.startS || 0)
-    const endS = Number(page.data.endS || 0)
     const s = clamp(startS, 0, state.totalDurationS)
     const e = clamp(endS, s, state.totalDurationS)
     const startPx = s * state.pixelsPerSecond
     const widthPx = Math.max(0, (e - s) * state.pixelsPerSecond)
     state.range = { startPx, widthPx }
-    // 每次更新截取范围后，同步到页面，避免拖动主时间线后绿条消失
-    sync()
+    syncRangeOnly()
+  }
+
+  function updateRangeFromPage() {
+    if (!page || !page.data) return
+    const startS = Number(page.data.startS || 0)
+    const endS = Number(page.data.endS || 0)
+    updateRange(startS, endS)
   }
 
   // 实际测量主时间线宽度，保证 0 秒居中对齐红线
@@ -135,11 +184,18 @@ function createMainTimeline(page) {
       q.exec((res) => {
         const rect = res && res[0]
         if (rect && rect.width) {
-          state.viewWidthPx = rect.width
+          let windowWidthPx = 0
+          try {
+            const sys = wx.getSystemInfoSync()
+            windowWidthPx = Number(sys && sys.windowWidth) || 0
+          } catch (e) {}
+
+          const marginPx = rpxToPx(MAIN_TIMELINE_SIDE_MARGIN_RPX, windowWidthPx || rect.width)
+          state.viewWidthPx = Math.max(0, rect.width - marginPx * 2)
           // 重新以 0 秒居中作为基准
           state.offsetPx = state.viewWidthPx / 2
           recomputeLayout()
-          sync()
+          syncFull()
         }
       })
     })
@@ -163,7 +219,7 @@ function createMainTimeline(page) {
       recomputeLayout()
       state.manualScrolling = false
 
-      sync()
+      syncFull()
       // 等 DOM 渲染完成后再用真实宽度重新校准一次
       measureViewWidthAndSync()
     },
@@ -173,10 +229,12 @@ function createMainTimeline(page) {
     },
 
     updateRangeFromPage,
+    updateRange,
 
     // 播放按钮点击后恢复自动跟随模式（允许 onVideoTimeUpdate 驱动时间线移动）
     resumeAutoFollow() {
       state.manualScrolling = false
+      syncLight()
     },
 
     // 播放进度驱动时间线滚动（非手动拖动时才自动居中）
@@ -197,7 +255,14 @@ function createMainTimeline(page) {
       offsetPx = clamp(offsetPx, minOffset, maxOffset)
       state.offsetPx = offsetPx
 
-      sync()
+      const now = Date.now()
+      const dt = now - (state.lastPlaySyncTs || 0)
+      const dOffset = Math.abs(offsetPx - (state.lastPlayOffsetPx || 0))
+      if (dt < 30 && dOffset < 0.5) return
+      state.lastPlaySyncTs = now
+      state.lastPlayOffsetPx = offsetPx
+
+      syncLight()
     },
 
     // 主时间线触摸开始
@@ -229,6 +294,7 @@ function createMainTimeline(page) {
       if (typeof page._mainTimelineFollow !== 'undefined') {
         page._mainTimelineFollow = false
       }
+      syncLight()
     },
 
     // 主时间线触摸移动
@@ -242,14 +308,14 @@ function createMainTimeline(page) {
         const dy = touches[0].clientY - touches[1].clientY
         const dist = Math.sqrt(dx * dx + dy * dy)
         if (!dist || !state.pinch.startDist) return
-        const scale = dist / state.pinch.startDist
+        let scale = dist / state.pinch.startDist
         // 根据主时间线宽度限制缩放范围：
         // - 最小：半屏 4 秒 => 全宽约 8 秒
         // - 最大：半屏 2 秒 => 全宽约 4 秒
         const halfWidth = (state.viewWidthPx || 320) / 2
         const MIN_PX_PER_S = halfWidth / 4   // 半屏 4s
         const MAX_PX_PER_S = halfWidth / 2   // 半屏 2s
-        const newPps = clamp(state.pinch.basePixelsPerSecond * scale, MIN_PX_PER_S, MAX_PX_PER_S)
+        let newPps = clamp(state.pinch.basePixelsPerSecond * scale, MIN_PX_PER_S, MAX_PX_PER_S)
         state.pixelsPerSecond = newPps
         state.ticks = buildMainTicks(state.totalDurationS, state.pixelsPerSecond)
         recomputeLayout()
@@ -263,7 +329,7 @@ function createMainTimeline(page) {
         offsetPx = clamp(offsetPx, minOffset, maxOffset)
         state.offsetPx = offsetPx
 
-        sync()
+        syncFull()
         return
       }
 
@@ -280,7 +346,7 @@ function createMainTimeline(page) {
       state.offsetPx = offsetPx
 
       if (!(state.totalDurationS > 0) || !(state.pixelsPerSecond > 0)) {
-        sync()
+        syncLight()
         return
       }
 
@@ -318,7 +384,7 @@ function createMainTimeline(page) {
         }
       }
 
-      sync()
+      syncLight()
     },
 
     // 主时间线触摸结束

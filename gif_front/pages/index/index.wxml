@@ -1,28 +1,31 @@
-<!-- 工具箱首页 -->
 <view class="page safe-area">
-  <view class="header">
-    <view class="title">GIF制作工具箱</view>
-    <view class="subtitle">端侧处理 · 失败直接提示</view>
+  <view class="nav">
+    <view class="nav-title">GIF制作工具箱</view>
+    <view class="nav-actions">
+      <view class="nav-action glass" bindtap="onTapTip">提示</view>
+    </view>
   </view>
 
-  <view class="grid">
-    <block wx:for="{{tools}}" wx:key="key">
-      <view class="card glass" bindtap="onTapTool" data-key="{{item.key}}" data-url="{{item.url}}">
-        <view class="card-top">
-          <view class="badge">GIF</view>
-          <view class="tag" wx:if="{{item.tag}}">{{item.tag}}</view>
+  <view class="banner-list">
+    <block wx:for="{{bannerCards}}" wx:for-item="card" wx:key="key">
+      <view class="banner-card glass-strong {{card.themeClass}} {{card.layoutClass}}">
+        <image class="banner-bg-img" src="{{card.bg}}" mode="aspectFill" />
+        <view class="banner-overlay"></view>
+        <image wx:if="{{card.thumb}}" class="banner-side-img {{card.thumbClass}}" src="{{card.thumb}}" mode="aspectFill" />
+        <view class="banner-content">
+          <view class="banner-top">
+            <view class="banner-title">{{card.title}}</view>
+            <view class="banner-pill glass">{{card.pill}}<text class="banner-pill-arrow">›</text></view>
+          </view>
+          <view class="banner-desc">{{card.desc}}</view>
+          <view class="banner-actions">
+            <view class="banner-btn {{card.btnClass}}" bindtap="onTapQuick" data-url="{{card.url}}" data-title="{{card.title}}">
+              <text class="banner-btn-icon">{{card.icon}}</text>
+              <text class="banner-btn-label">{{card.btnLabel}}</text>
+            </view>
+          </view>
         </view>
-        <view class="card-title">{{item.title}}</view>
-        <view class="card-desc">{{item.desc}}</view>
       </view>
     </block>
-  </view>
-
-  <view class="footer glass">
-    <view class="footer-left">
-      <view class="footer-title">提示</view>
-      <view class="footer-desc">视频截取最长10秒；建议 480p + 5FPS</view>
-    </view>
-    <view class="footer-action" bindtap="onTapLogs">日志</view>
   </view>
 </view>

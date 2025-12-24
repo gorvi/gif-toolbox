@@ -3,7 +3,9 @@
     "pages/index/index",
     "pages/video-to-gif/index",
     "pages/images-to-gif/index",
-    "pages/logs/logs"
+    "pages/gif-compress/index",
+    "pages/gif-add-text/index",
+    "pages/gif-edit/index"
   ],
   "window": {
     "navigationBarTextStyle": "black",

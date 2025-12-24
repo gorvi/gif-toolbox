@@ -47,6 +47,101 @@ function sleep0() {
   return new Promise((resolve) => setTimeout(resolve, 0))
 }
 
+function configureSmoothing(ctx, quality) {
+  if (!ctx) return
+  if (typeof ctx.imageSmoothingEnabled !== 'undefined') {
+    ctx.imageSmoothingEnabled = quality !== 'none'
+  }
+  if (typeof ctx.imageSmoothingQuality !== 'undefined') {
+    ctx.imageSmoothingQuality = quality === 'high' ? 'high' : 'low'
+  }
+}
+
+function getCoverCropRect(imageItem, iw, ih, outW, outH) {
+  const clamp01 = (n) => {
+    const v = Number(n)
+    if (!Number.isFinite(v)) return 0
+    if (v < 0) return 0
+    if (v > 1) return 1
+    return v
+  }
+
+  const item = imageItem || {}
+  const rect = item.cropRect
+  if (rect && typeof rect.sx === 'number' && typeof rect.sy === 'number' && typeof rect.sw === 'number' && typeof rect.sh === 'number') {
+    const sx = Math.max(0, Math.min(iw - 1, Math.round(rect.sx)))
+    const sy = Math.max(0, Math.min(ih - 1, Math.round(rect.sy)))
+    const sw = Math.max(1, Math.min(iw - sx, Math.round(rect.sw)))
+    const sh = Math.max(1, Math.min(ih - sy, Math.round(rect.sh)))
+    return { sx, sy, sw, sh }
+  }
+
+  const cropConfig = item.cropConfig
+  if (cropConfig && typeof cropConfig.x === 'number' && typeof cropConfig.y === 'number' && typeof cropConfig.width === 'number' && typeof cropConfig.height === 'number') {
+    const x = clamp01(cropConfig.x)
+    const y = clamp01(cropConfig.y)
+    const w = clamp01(cropConfig.width)
+    const h = clamp01(cropConfig.height)
+
+    const sx = Math.max(0, Math.min(iw - 1, Math.round(x * iw)))
+    const sy = Math.max(0, Math.min(ih - 1, Math.round(y * ih)))
+    const sw = Math.max(1, Math.min(iw - sx, Math.round(Math.min(1 - x, w) * iw)))
+    const sh = Math.max(1, Math.min(ih - sy, Math.round(Math.min(1 - y, h) * ih)))
+    return { sx, sy, sw, sh }
+  }
+
+  const outAspect2 = outW / outH
+  const srcAspect = iw / ih
+  let sx = 0
+  let sy = 0
+  let sw = iw
+  let sh = ih
+  if (srcAspect > outAspect2) {
+    sh = ih
+    sw = Math.max(1, Math.round(ih * outAspect2))
+    sx = Math.round((iw - sw) / 2)
+    sy = 0
+  } else {
+    sw = iw
+    sh = Math.max(1, Math.round(iw / outAspect2))
+    sx = 0
+    sy = Math.round((ih - sh) / 2)
+  }
+  return { sx, sy, sw, sh }
+}
+
+function isLikelyBinaryImage(rgba, outW, outH) {
+  const w = Math.max(1, outW | 0)
+  const h = Math.max(1, outH | 0)
+  const total = w * h
+  const targetSamples = 2000
+  const step = Math.max(1, Math.floor(Math.sqrt(total / targetSamples)))
+
+  let black = 0
+  let white = 0
+  let mid = 0
+  let samples = 0
+
+  for (let y = 0; y < h; y += step) {
+    for (let x = 0; x < w; x += step) {
+      const p = (y * w + x) * 4
+      const r = rgba[p]
+      const g = rgba[p + 1]
+      const b = rgba[p + 2]
+      const l = (r * 299 + g * 587 + b * 114) / 1000
+      if (l <= 30) black++
+      else if (l >= 225) white++
+      else mid++
+      samples++
+    }
+  }
+
+  if (!samples) return false
+  const bwRatio = (black + white) / samples
+  const midRatio = mid / samples
+  return bwRatio >= 0.92 && midRatio <= 0.08
+}
+
 /**
  * 端侧图片序列合成 GIF（稳定优先）
  * @param {Object} options
@@ -65,6 +160,7 @@ async function convertImagesToGif(options) {
     canvas,
     ctx,
     maxSidePx,
+    outAspect,
     frameDelayMs,
     loop,
     dither,
@@ -73,21 +169,36 @@ async function convertImagesToGif(options) {
 
   if (!images || !images.length) throw new Error('请先选择图片')
   if (!canvas || !ctx) throw new Error('画布未就绪，请稍后重试')
-  if (!maxSidePx || maxSidePx <= 0) throw new Error('参数不合法：最长边')
+  if (!maxSidePx || maxSidePx <= 0) throw new Error('参数不合法：导出分辨率')
   if (!frameDelayMs || frameDelayMs <= 0) throw new Error('参数不合法：帧时长')
 
   const total = images.length
   const delayCs = Math.max(1, Math.round(frameDelayMs / 10)) // GIF delay in centiseconds
 
-  // 先加载第一张确定尺寸（保持宽高比）
+  // 先加载第一张确定画布尺寸（保持宽高比）
   const firstInfo = await wx.getImageInfo({ src: images[0].path })
   const w0 = firstInfo.width || 0
   const h0 = firstInfo.height || 0
   if (!w0 || !h0) throw new Error('读取图片信息失败')
 
-  const scale = Math.min(1, maxSidePx / Math.max(w0, h0))
-  const outW = Math.max(1, Math.round(w0 * scale))
-  const outH = Math.max(1, Math.round(h0 * scale))
+  const maxDim0 = Math.max(w0, h0)
+  const baseLongEdge = Math.min(maxSidePx, maxDim0)
+
+  let outW = 0
+  let outH = 0
+  if (outAspect && outAspect > 0 && Number.isFinite(outAspect)) {
+    if (outAspect >= 1) {
+      outW = baseLongEdge
+      outH = Math.max(1, Math.round(outW / outAspect))
+    } else {
+      outH = baseLongEdge
+      outW = Math.max(1, Math.round(outH * outAspect))
+    }
+  } else {
+    const scale = baseLongEdge / maxDim0
+    outW = Math.max(1, Math.round(w0 * scale))
+    outH = Math.max(1, Math.round(h0 * scale))
+  }
 
   canvas.width = outW
   canvas.height = outH
@@ -101,6 +212,11 @@ async function convertImagesToGif(options) {
     const imgPath = images[i].path
     if (typeof onProgress === 'function') onProgress({ step: '绘制', index: i + 1, total })
 
+    const info = await wx.getImageInfo({ src: imgPath })
+    const iw = info.width || 0
+    const ih = info.height || 0
+    if (!iw || !ih) throw new Error('读取图片信息失败')
+
     // 加载图片到 canvas
     const img = canvas.createImage()
     await new Promise((resolve, reject) => {
@@ -110,14 +226,50 @@ async function convertImagesToGif(options) {
     })
 
     ctx.clearRect(0, 0, outW, outH)
-    ctx.drawImage(img, 0, 0, outW, outH)
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, outW, outH)
+
+    const fitMode = (images[i] && images[i].fitMode) || 'contain'
+    configureSmoothing(ctx, dither ? 'high' : 'low')
+    if (fitMode === 'cover') {
+      const rect = getCoverCropRect(images[i], iw, ih, outW, outH)
+      ctx.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, outW, outH)
+    } else {
+      const fitScale = Math.min(outW / iw, outH / ih)
+      const dw = Math.max(1, Math.round(iw * fitScale))
+      const dh = Math.max(1, Math.round(ih * fitScale))
+      const dx = Math.round((outW - dw) / 2)
+      const dy = Math.round((outH - dh) / 2)
+      ctx.drawImage(img, dx, dy, dw, dh)
+    }
 
     if (typeof onProgress === 'function') onProgress({ step: '取像素', index: i + 1, total })
-    const imageData = ctx.getImageData(0, 0, outW, outH)
-    const rgba = imageData.data
+    let imageData = ctx.getImageData(0, 0, outW, outH)
+    let rgba = imageData.data
+    const binary = dither ? isLikelyBinaryImage(rgba, outW, outH) : false
+
+    if (binary) {
+      ctx.clearRect(0, 0, outW, outH)
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(0, 0, outW, outH)
+      configureSmoothing(ctx, 'none')
+      if (fitMode === 'cover') {
+        const rect = getCoverCropRect(images[i], iw, ih, outW, outH)
+        ctx.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, outW, outH)
+      } else {
+        const fitScale = Math.min(outW / iw, outH / ih)
+        const dw = Math.max(1, Math.round(iw * fitScale))
+        const dh = Math.max(1, Math.round(ih * fitScale))
+        const dx = Math.round((outW - dw) / 2)
+        const dy = Math.round((outH - dh) / 2)
+        ctx.drawImage(img, dx, dy, dw, dh)
+      }
+      imageData = ctx.getImageData(0, 0, outW, outH)
+      rgba = imageData.data
+    }
     const indexed = new Uint8Array(outW * outH)
 
-    if (dither) {
+    if (dither && !binary) {
       // Floyd–Steinberg dithering (err arrays store numerator with /16 denominator)
       const errR = new Int32Array(outW + 2)
       const errG = new Int32Array(outW + 2)
@@ -218,5 +370,3 @@ async function convertImagesToGif(options) {
 module.exports = {
   convertImagesToGif,
 }
-
-

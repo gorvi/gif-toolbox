@@ -1,0 +1,181 @@
+<view class="page safe-area">
+  <view class="top-toolbar">
+    <view class="top-toolbar-left">
+      <view class="top-toolbar-count-pill">
+        <text class="top-toolbar-count">{{inputInfoText ? ('原参数：' + inputInfoText) : '请选择一个 GIF'}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="panel glass-strong preview-panel">
+    <view class="preview" wx:if="{{inputPath}}">
+      <view class="preview-row">
+        <view class="preview-col">
+          <view class="preview-title">原图</view>
+          <image class="preview-img" src="{{inputPath}}" mode="aspectFit" bindtap="onPreviewImage" data-src="{{inputPath}}" />
+          <view class="preview-sub">{{inputSizeText}}</view>
+        </view>
+        <view class="preview-col" wx:if="{{outPath}}">
+          <view class="preview-title">加字后</view>
+          <image class="preview-img" src="{{outPath}}" mode="aspectFit" bindtap="onPreviewImage" data-src="{{outPath}}" />
+          <view class="preview-sub">
+            <text>{{outSizeText}}</text>
+            <text class="out-stale" wx:if="{{outputDirty}}"> · 已过期</text>
+          </view>
+        </view>
+      </view>
+      <view class="preview-actions">
+        <view class="ui-btn ui-btn-ghost" bindtap="onChooseSource">
+          <text class="ui-btn-icon">＋</text>
+          <text class="ui-btn-label">更换GIF</text>
+        </view>
+        <view class="ui-btn ui-btn-ghost" bindtap="onClear">
+          <text class="ui-btn-icon">×</text>
+          <text class="ui-btn-label">清空</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="empty" wx:else>
+      <view class="empty-title">还没有 GIF</view>
+      <view class="empty-desc">相册可能会把动图转成静态图；建议优先用“聊天图片/文件”选择</view>
+      <view class="empty-actions">
+        <view class="ui-btn ui-btn-green" bindtap="onChooseSource">
+          <text class="ui-btn-icon">＋</text>
+          <text class="ui-btn-label">选择GIF</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="options glass" wx:if="{{inputPath}}">
+    <view class="opt-hint opt-hint-warn" wx:if="{{largeHintText}}">{{largeHintText}}</view>
+    <view class="section-label">修改参数</view>
+
+    <view class="opt-row opt-row-top">
+      <text class="opt-label">文字</text>
+    </view>
+    <textarea
+      class="text-input"
+      value="{{text}}"
+      placeholder="输入要加到 GIF 上的文字（支持换行）"
+      maxlength="120"
+      auto-height="true"
+      disabled="{{processing}}"
+      bindinput="onTextInput"
+    />
+    <view class="opt-hint">建议简短；太长会自动换行</view>
+
+    <view class="divider"></view>
+
+    <picker mode="selector" range="{{positionLabels}}" value="{{positionIndex}}" bindchange="onPositionPick">
+      <view class="opt-row opt-row-tappable">
+        <text class="opt-label">位置</text>
+        <text class="opt-value">{{positionLabels[positionIndex]}}</text>
+      </view>
+    </picker>
+
+    <picker mode="selector" range="{{sizeLabels}}" value="{{sizeIndex}}" bindchange="onSizePick">
+      <view class="opt-row opt-row-tappable">
+        <text class="opt-label">字号</text>
+        <text class="opt-value">{{sizeLabels[sizeIndex]}}</text>
+      </view>
+    </picker>
+
+    <picker mode="selector" range="{{colorLabels}}" value="{{colorIndex}}" bindchange="onColorPick">
+      <view class="opt-row opt-row-tappable">
+        <text class="opt-label">颜色</text>
+        <text class="opt-value">{{colorLabels[colorIndex]}}</text>
+      </view>
+    </picker>
+
+    <view class="opt-row">
+      <text class="opt-label">描边</text>
+      <view class="quality">
+        <text class="quality-text">{{strokeEnabled ? '开' : '关'}}</text>
+        <switch checked="{{strokeEnabled}}" bindchange="onStrokeChange" color="#20c05c" />
+      </view>
+    </view>
+
+    <view class="opt-row">
+      <text class="opt-label">底色</text>
+      <view class="quality">
+        <text class="quality-text">{{bgEnabled ? '开' : '关'}}</text>
+        <switch checked="{{bgEnabled}}" bindchange="onBgChange" color="#20c05c" />
+      </view>
+    </view>
+    <view class="opt-hint">底色可增强可读性；会略增体积</view>
+
+    <view class="divider"></view>
+
+    <picker mode="selector" range="{{maxSideLabels}}" value="{{maxSideIndex}}" bindchange="onMaxSidePick">
+      <view class="opt-row opt-row-tappable">
+        <text class="opt-label">导出分辨率</text>
+        <text class="opt-value">{{maxSideLabels[maxSideIndex]}}</text>
+      </view>
+    </picker>
+    <view class="opt-hint">长边上限；原图较小不放大</view>
+
+    <view class="divider"></view>
+
+    <picker mode="selector" range="{{frameStepLabels}}" value="{{frameStepIndex}}" bindchange="onFrameStepPick">
+      <view class="opt-row opt-row-tappable">
+        <text class="opt-label">抽帧</text>
+        <text class="opt-value">{{frameStepLabels[frameStepIndex]}}</text>
+      </view>
+    </picker>
+    <view class="opt-hint">抽帧越多体积越小；会更跳</view>
+    <view class="opt-hint" wx:if="{{estimateText}}">{{estimateText}}</view>
+
+    <view class="divider"></view>
+
+    <view class="opt-row">
+      <text class="opt-label">画质</text>
+      <view class="quality">
+        <text class="quality-text">{{qualityMode === 'HIGH' ? '高画质' : '标准'}}</text>
+        <switch checked="{{qualityMode === 'HIGH'}}" bindchange="onQualityChange" color="#20c05c" />
+      </view>
+    </view>
+    <view class="opt-hint">高画质更好看；标准更快</view>
+  </view>
+
+  <view class="bottom safe-area" wx:if="{{inputPath}}">
+    <button class="btn btn-primary" bindtap="onGenerate" disabled="{{processing}}">{{primaryActionText}}</button>
+    <button class="btn btn-ghost" bindtap="onSave" wx:if="{{outPath}}">保存到相册</button>
+    <view class="progress" wx:if="{{processing}}">
+      <progress percent="{{progressPercent}}" stroke-width="6" activeColor="#667eea" backgroundColor="rgba(0,0,0,0.08)" active="true" />
+      <view class="progress-text">{{progressText}}</view>
+    </view>
+  </view>
+
+  <view class="preview-modal {{previewModalVisible ? 'preview-modal-show' : ''}}" wx:if="{{previewModalVisible}}">
+    <view class="preview-hit-mask" catchtap="onClosePreviewModal"></view>
+    <view class="preview-viewer">
+      <image
+        class="preview-viewer-img"
+        src="{{previewModalSrc}}"
+        mode="aspectFit"
+        catchtap="onTogglePreviewControls"
+        bindtouchstart="onPreviewTouchStart"
+        bindtouchmove="onPreviewTouchMove"
+        bindtouchend="onPreviewTouchEnd"
+        bindtouchcancel="onPreviewTouchEnd"
+      />
+
+      <view class="preview-topbar {{previewControlsVisible ? 'preview-topbar-show' : 'preview-topbar-hide'}}">
+        <view class="preview-close-btn" catchtap="onClosePreviewModal">×</view>
+        <view class="preview-topbar-space"></view>
+        <view class="preview-counter">{{previewModalIndex}}/{{previewModalTotal}}</view>
+      </view>
+
+      <view class="preview-nav-zone preview-nav-zone-left {{previewControlsVisible ? 'preview-nav-zone-show' : 'preview-nav-zone-hide'}} {{previewModalCanPrev ? '' : 'preview-nav-zone-disabled'}}" wx:if="{{previewModalNavVisible}}" catchtap="onPreviewPrev">
+        <view class="preview-nav-icon">‹</view>
+      </view>
+      <view class="preview-nav-zone preview-nav-zone-right {{previewControlsVisible ? 'preview-nav-zone-show' : 'preview-nav-zone-hide'}} {{previewModalCanNext ? '' : 'preview-nav-zone-disabled'}}" wx:if="{{previewModalNavVisible}}" catchtap="onPreviewNext">
+        <view class="preview-nav-icon">›</view>
+      </view>
+    </view>
+  </view>
+
+  <canvas type="2d" id="workCanvas" class="hidden-canvas"></canvas>
+</view>

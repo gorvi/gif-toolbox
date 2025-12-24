@@ -28,7 +28,7 @@
       </picker>
       <!-- 导出按钮 -->
       <view class="top-toolbar-export" bindtap="onExport">
-        <text class="top-toolbar-export-text">导出</text>
+        <text class="top-toolbar-export-text">预览</text>
       </view>
     </view>
   </view>
@@ -37,7 +37,14 @@
     <view class="preview">
       <block wx:if="{{videoPath}}">
         <!-- 单视频组件方案 -->
-        <view class="video-container" id="mainVideoContainer">
+        <view
+          class="video-container"
+          id="mainVideoContainer"
+          bindtouchstart="onTextGestureStart"
+          bindtouchmove="onTextGestureMove"
+          bindtouchend="onTextGestureEnd"
+          bindtouchcancel="onTextGestureEnd"
+        >
           <video
             id="videoPlayer"
             class="video"
@@ -50,39 +57,68 @@
             enable-progress-gesture="{{false}}"
             object-fit="contain"
             bindtimeupdate="onTimeUpdate"
+            bindplay="onVideoPlay"
+            bindpause="onVideoPause"
+            bindended="onVideoEnded"
             binderror="onVideoError"
             bindloadedmetadata="onVideoLoaded"
           />
+          <view
+            class="video-letterbox video-letterbox-top"
+            wx:if="{{showLetterboxOverlays && letterboxTopPx > 0}}"
+            style="height: {{letterboxTopPx}}px;"
+          ></view>
+          <view
+            class="video-letterbox video-letterbox-bottom"
+            wx:if="{{showLetterboxOverlays && letterboxBottomPx > 0}}"
+            style="height: {{letterboxBottomPx}}px;"
+          ></view>
+          <view
+            class="video-letterbox video-letterbox-left"
+            wx:if="{{showLetterboxOverlays && letterboxLeftPx > 0}}"
+            style="width: {{letterboxLeftPx}}px; top: {{mainVideoDisplayYpx}}px; height: {{mainVideoDisplayHpx}}px;"
+          ></view>
+          <view
+            class="video-letterbox video-letterbox-right"
+            wx:if="{{showLetterboxOverlays && letterboxRightPx > 0}}"
+            style="width: {{letterboxRightPx}}px; top: {{mainVideoDisplayYpx}}px; height: {{mainVideoDisplayHpx}}px;"
+          ></view>
           <!-- 文字预览/编辑（直接在首页） -->
           <view 
-            class="video-text-preview {{textActiveTab && textActiveTab !== 'none' ? 'video-text-editing' : ''}}"
-            wx:if="{...(textConfig.content && textActiveTab && textActiveTab !== 'none') || (textPreviewConfig && textPreviewConfig.content)}}"
+            class="video-text-preview {{textActiveTab && textActiveTab !== 'none' ? 'video-text-editing' : ''}} {{textActiveTab === 'crop' ? 'video-text-disabled' : ''}}"
+            wx:if="{{(textConfig.content && textActiveTab && textActiveTab !== 'none') || (textPreviewConfig && textPreviewConfig.content)}}"
             style="left: {{textActiveTab && textActiveTab !== 'none' && textConfig.content ? textConfig.x : (textPreviewConfig ? textPreviewConfig.x : 50)}}%; top: {{textActiveTab && textActiveTab !== 'none' && textConfig.content ? textConfig.y : (textPreviewConfig ? textPreviewConfig.y : 50)}}%;"
           >
             <view 
               class="text-drag-box {{textDragging ? 'text-dragging' : ''}}"
               wx:if="{{textConfig.content && textActiveTab && textActiveTab !== 'none'}}"
-              catchtouchstart="onTextDragStart"
-              catchtouchmove="onTextDragMove"
-              catchtouchend="onTextDragEnd"
-              catchtouchcancel="onTextDragEnd"
+              bindtouchstart="onTextDragStart"
+              bindtouchmove="onTextDragMove"
+              bindtouchend="onTextDragEnd"
+              bindtouchcancel="onTextDragEnd"
             >
-              <text 
-                class="text-content {{textConfig.animation ? 'text-animation-' + textConfig.animation : ''}}"
-                style="color: {{textConfig.color}}; opacity: {{(100 - textConfig.textOpacity) / 100}}; font-size: {{textConfig.fontSizeNum}}px; -webkit-text-stroke: {{textConfig.strokeColor ? (textConfig.strokeWidth / 50) + 'px ' + textConfig.strokeColor : 'none'}}; text-shadow: {{textConfig._shadowStyle || 'none'}}; {{textConfig._bgStyle || ''}}"
-              >{{textConfig.content}}</text>
-              <view class="text-delete-btn" catchtap="onTextDelete">×</view>
+              <view class="text-content-wrap" style="{{textConfig._bgStyle || ''}}">
+                <text 
+                  class="text-content {{textConfig.animation ? 'text-animation-' + textConfig.animation : ''}}"
+                  style="color: {{textConfig.color}}; opacity: {{(100 - textConfig.textOpacity) / 100}}; font-size: {{textConfig.fontSizeNum}}px; -webkit-text-stroke: {{textConfig.strokeColor ? (textConfig.strokeWidth / 50) + 'px ' + textConfig.strokeColor : 'none'}}; text-shadow: {{textConfig._shadowStyle || 'none'}}; {{textConfig._animStyle || ''}}"
+                >{{textConfig.content}}</text>
+              </view>
+              <view class="text-delete-btn" data-role="delete" catchtap="onTextDelete">×</view>
             </view>
-            <text 
-              wx:else
-              class="{{textConfig.animation ? 'text-animation-' + textConfig.animation : ''}}"
-              style="color: {{textPreviewConfig.color}}; opacity: {{(100 - textPreviewConfig.textOpacity) / 100}}; font-size: {{textPreviewConfig.fontSize}}px; -webkit-text-stroke: {{textPreviewConfig.strokeColor ? (textPreviewConfig.strokeWidth / 50) + 'px ' + textPreviewConfig.strokeColor : 'none'}}; text-shadow: {{textPreviewConfig._shadowStyle || 'none'}}; {{textPreviewConfig._bgStyle || ''}}"
-            >{{textPreviewConfig.content}}</text>
+            <view class="text-drag-box" wx:else>
+              <view class="text-content-wrap" style="{{textPreviewConfig._bgStyle || ''}}">
+                <text 
+                  class="text-content {{textConfig.animation ? 'text-animation-' + textConfig.animation : ''}}"
+                  style="color: {{textPreviewConfig.color}}; opacity: {{(100 - textPreviewConfig.textOpacity) / 100}}; font-size: {{textPreviewConfig.fontSize}}px; -webkit-text-stroke: {{textPreviewConfig.strokeColor ? (textPreviewConfig.strokeWidth / 50) + 'px ' + textPreviewConfig.strokeColor : 'none'}}; text-shadow: {{textPreviewConfig._shadowStyle || 'none'}}; {{textPreviewConfig._animStyle || ''}}"
+                >{{textPreviewConfig.content}}</text>
+              </view>
+              <view class="text-delete-btn text-delete-btn-hidden">×</view>
+            </view>
           </view>
           <!-- 裁剪预览框/编辑（直接在首页） -->
           <view 
             class="crop-preview-overlay {{textActiveTab === 'crop' ? 'crop-editing' : ''}}"
-            wx:if="{{cropPreviewConfig || textActiveTab === 'crop'}}"
+            wx:if="{{cropPreviewConfig}}"
           >
             <!-- 遮罩层：四个区域（上下左右）显示非裁剪区域 -->
             <!-- 上遮罩 -->
@@ -95,11 +131,92 @@
             <view class="crop-preview-mask crop-preview-mask-right" style="top: {{cropPreviewConfig.y}}%; left: {{cropPreviewConfig.x + cropPreviewConfig.width}}%; width: {{100 - cropPreviewConfig.x - cropPreviewConfig.width}}%; height: {{cropPreviewConfig.height}}%;"></view>
             <!-- 裁剪框 -->
             <view 
-              class="crop-preview-box"
+              class="crop-preview-box crop-box {{cropDragging ? 'crop-dragging' : ''}}"
               style="left: {{cropPreviewConfig.x}}%; top: {{cropPreviewConfig.y}}%; width: {{cropPreviewConfig.width}}%; height: {{cropPreviewConfig.height}}%;"
             >
+              <view
+                wx:if="{{textActiveTab === 'crop'}}"
+                class="crop-drag-area"
+                data-type="move"
+                catchtouchstart="onCropDragStart"
+                catchtouchmove="onCropDragMove"
+                catchtouchend="onCropDragEnd"
+                catchtouchcancel="onCropDragEnd"
+              ></view>
+              <view
+                wx:if="{{textActiveTab === 'crop'}}"
+                class="crop-handle crop-handle-tl"
+                data-type="resize-tl"
+                catchtouchstart="onCropDragStart"
+                catchtouchmove="onCropDragMove"
+                catchtouchend="onCropDragEnd"
+                catchtouchcancel="onCropDragEnd"
+              ></view>
+              <view
+                wx:if="{{textActiveTab === 'crop'}}"
+                class="crop-handle crop-handle-tr"
+                data-type="resize-tr"
+                catchtouchstart="onCropDragStart"
+                catchtouchmove="onCropDragMove"
+                catchtouchend="onCropDragEnd"
+                catchtouchcancel="onCropDragEnd"
+              ></view>
+              <view
+                wx:if="{{textActiveTab === 'crop'}}"
+                class="crop-handle crop-handle-bl"
+                data-type="resize-bl"
+                catchtouchstart="onCropDragStart"
+                catchtouchmove="onCropDragMove"
+                catchtouchend="onCropDragEnd"
+                catchtouchcancel="onCropDragEnd"
+              ></view>
+              <view
+                wx:if="{{textActiveTab === 'crop'}}"
+                class="crop-handle crop-handle-br"
+                data-type="resize-br"
+                catchtouchstart="onCropDragStart"
+                catchtouchmove="onCropDragMove"
+                catchtouchend="onCropDragEnd"
+                catchtouchcancel="onCropDragEnd"
+              ></view>
+              <view
+                wx:if="{{textActiveTab === 'crop'}}"
+                class="crop-handle crop-handle-t"
+                data-type="resize-t"
+                catchtouchstart="onCropDragStart"
+                catchtouchmove="onCropDragMove"
+                catchtouchend="onCropDragEnd"
+                catchtouchcancel="onCropDragEnd"
+              ></view>
+              <view
+                wx:if="{{textActiveTab === 'crop'}}"
+                class="crop-handle crop-handle-b"
+                data-type="resize-b"
+                catchtouchstart="onCropDragStart"
+                catchtouchmove="onCropDragMove"
+                catchtouchend="onCropDragEnd"
+                catchtouchcancel="onCropDragEnd"
+              ></view>
+              <view
+                wx:if="{{textActiveTab === 'crop'}}"
+                class="crop-handle crop-handle-l"
+                data-type="resize-l"
+                catchtouchstart="onCropDragStart"
+                catchtouchmove="onCropDragMove"
+                catchtouchend="onCropDragEnd"
+                catchtouchcancel="onCropDragEnd"
+              ></view>
+              <view
+                wx:if="{{textActiveTab === 'crop'}}"
+                class="crop-handle crop-handle-r"
+                data-type="resize-r"
+                catchtouchstart="onCropDragStart"
+                catchtouchmove="onCropDragMove"
+                catchtouchend="onCropDragEnd"
+                catchtouchcancel="onCropDragEnd"
+              ></view>
               <!-- 裁剪比例标签 -->
-              <view class="crop-preview-label" wx:if="{{cropPreviewConfig.aspectRatio !== 'free'}}">
+              <view class="crop-preview-label" wx:if="{{cropPreviewConfig.aspectRatio !== 'free' && cropPreviewConfig.aspectRatio !== 'none'}}">
                 {{cropPreviewConfig.aspectRatio}}
               </view>
             </view>
@@ -108,25 +225,27 @@
         <!-- 视频底部播放控制条（放在黑色背景区域内，类似剪映） -->
         <view class="video-playbar-overlay">
           <view class="control-bar">
-            <!-- 时间 HUD：当前 / 总时长，左对齐 -->
-            <text class="time-text">{{clockText}}</text>
-            <view class="control-center">
-              <!-- 播放全篇按钮 -->
-              <view class="play-btn play-btn-full" bindtap="onToggleFullPlay">
-                <text class="play-icon">▶</text>
-              </view>
-              <!-- 播放片段按钮 -->
-              <view class="play-btn play-btn-segment {{segmentPlaying ? 'play-btn-active' : ''}}" bindtap="onToggleSegmentPlay">
-                <text class="play-icon-small">{{segmentPlaying ? '⏸' : '▶'}}</text>
-                <text class="play-label">片段</text>
+            <view class="control-row control-row-top">
+              <text class="time-text">{{clockText}}</text>
+              <view class="control-right">
+                <view class="ui-btn ui-btn-ghost" bindtap="onChooseVideo">
+                  <text class="ui-btn-icon">↺</text>
+                  <text class="ui-btn-label">换视频</text>
+                </view>
+                <view class="ui-btn ui-btn-ghost" bindtap="onFullscreenPreview">
+                  <text class="ui-btn-icon">⤢</text>
+                  <text class="ui-btn-label">全屏</text>
+                </view>
               </view>
             </view>
-            <view class="control-right">
-              <view class="tool-btn" bindtap="onChooseVideo">
-                <text class="tool-text">换</text>
+            <view class="control-row control-row-bottom">
+              <view class="ui-btn ui-btn-dark {{videoPlaying && !segmentPlaying ? 'ui-btn-active' : ''}}" bindtap="onToggleFullPlay">
+                <text class="ui-btn-icon">{{videoPlaying && !segmentPlaying ? '⏸' : '▶'}}</text>
+                <text class="ui-btn-label">全篇</text>
               </view>
-              <view class="tool-btn" bindtap="onFullscreenPreview">
-                <text class="tool-text">全屏</text>
+              <view class="ui-btn ui-btn-green {{segmentPlaying ? 'ui-btn-active' : ''}}" bindtap="onToggleSegmentPlay">
+                <text class="ui-btn-icon">{{segmentPlaying ? '⏸' : '▶'}}</text>
+                <text class="ui-btn-label">片段</text>
               </view>
             </view>
           </view>
@@ -150,7 +269,7 @@
     >
       <view class="main-timeline-playhead"></view>
       <view 
-        class="main-timeline-inner" 
+        class="main-timeline-inner {{videoPlaying && !(mainTimeline && mainTimeline.manualScrolling) ? 'main-timeline-inner-anim' : ''}}" 
         style="width: {{mainTimeline.contentWidthPx}}px; transform: translateX({{mainTimeline.offsetPx}}px);"
       >
         <!-- 主时间线截取高亮区（整体平移截取范围用） -->
@@ -208,7 +327,7 @@
   </view>
 
   <!-- 底部导航栏（类似剪映） -->
-  <view class="bottom-nav-bar safe-area">
+  <view class="bottom-nav-bar safe-area {{textActiveTab && textActiveTab !== 'none' ? 'bottom-nav-bar-hidden' : ''}}">
     <view class="bottom-nav-item" bindtap="onClickCropTool">
       <view class="bottom-nav-icon">✂</view>
       <text class="bottom-nav-label">剪辑</text>
@@ -217,42 +336,25 @@
       <view class="bottom-nav-icon">T</view>
       <text class="bottom-nav-label">文本</text>
     </view>
-    <view class="bottom-nav-item bottom-nav-item-disabled">
-      <view class="bottom-nav-icon">🎵</view>
-      <text class="bottom-nav-label">音频</text>
-    </view>
-    <view class="bottom-nav-item bottom-nav-item-disabled">
-      <view class="bottom-nav-icon">⭐</view>
-      <text class="bottom-nav-label">贴纸</text>
-    </view>
-    <view class="bottom-nav-item bottom-nav-item-disabled">
-      <view class="bottom-nav-icon">📷</view>
-      <text class="bottom-nav-label">画中画</text>
-    </view>
-    <view class="bottom-nav-item bottom-nav-item-disabled">
-      <view class="bottom-nav-icon">✨</view>
-      <text class="bottom-nav-label">特效</text>
-    </view>
   </view>
 
   <!-- 抽屉式编辑组件（类似剪映） -->
-  <view class="edit-drawer-mask {{textActiveTab && textActiveTab !== 'none' ? 'edit-drawer-mask-show' : ''}}" wx:if="{{textActiveTab && textActiveTab !== 'none'}}" bindtap="onCloseEditComponent"></view>
-  <view class="edit-drawer {{textActiveTab && textActiveTab !== 'none' ? 'edit-drawer-show' : ''}}" wx:if="{{textActiveTab && textActiveTab !== 'none'}}">
-    <!-- 抽屉顶部拖拽指示条 -->
-    <view class="drawer-handle"></view>
+  <view class="edit-drawer-mask {{textActiveTab && textActiveTab !== 'none' ? 'edit-drawer-mask-show' : ''}}" wx:if="{{textActiveTab && textActiveTab !== 'none'}}" catchtap="onDrawerMaskTap"></view>
+  <view class="edit-drawer {{textActiveTab && textActiveTab !== 'none' ? 'edit-drawer-show' : ''}} {{keyboardHeightPx <= 0 ? 'edit-drawer-fill' : ''}}" wx:if="{{textActiveTab && textActiveTab !== 'none'}}" style="{{keyboardHeightPx > 0 ? ('height: ' + drawerHeightVh + 'vh; bottom: ' + keyboardHeightPx + 'px;') : ('top: ' + drawerTopPx + 'px; bottom: 0; height: auto;')}}">
+    <view class="drawer-close-fab" bindtap="onCloseEditComponent">完成</view>
     
     <!-- 文字编辑组件 -->
     <view class="edit-component">
       <scroll-view class="text-tabs-scroll" scroll-x="{{true}}" scroll-with-animation="{{false}}">
         <view class="text-tabs">
           <view 
+            class="text-tab {{textActiveTab === 'crop' ? 'text-tab-active' : ''}}"
+            data-tab="crop"
+            bindtap="onTextTabChange"
+          >裁剪</view>
+          <view 
             class="text-tab {{textActiveTab === 'keyboard' ? 'text-tab-active' : ''}}"
             data-tab="keyboard"
-            bindtap="onTextTabChange"
-          >键盘</view>
-          <view 
-            class="text-tab {{textActiveTab === 'text' ? 'text-tab-active' : ''}}"
-            data-tab="text"
             bindtap="onTextTabChange"
           >文字</view>
           <view 
@@ -275,11 +377,6 @@
             data-tab="animation"
             bindtap="onTextTabChange"
           >动画</view>
-          <view 
-            class="text-tab {{textActiveTab === 'crop' ? 'text-tab-active' : ''}}"
-            data-tab="crop"
-            bindtap="onTextTabChange"
-          >裁剪</view>
         </view>
       </scroll-view>
 
@@ -288,19 +385,24 @@
         <!-- 键盘tab -->
         <view class="text-tab-pane" wx:if="{{textActiveTab === 'keyboard'}}">
           <view class="input-row">
-            <input 
+            <textarea
               class="text-input"
-              type="text"
+              maxlength="30"
               placeholder="输入文字"
               value="{{textConfig.content}}"
               bindinput="onTextInput"
-              bindconfirm="onTextConfirm"
+              bindfocus="onTextInputFocus"
+              bindblur="onTextInputBlur"
               focus="{{textInputFocus}}"
-            />
+              auto-height="{{true}}"
+              adjust-position="{{false}}"
+            ></textarea>
           </view>
+          <block wx:if="{{keyboardHeightPx <= 0}}">
           <view class="slider-row">
             <text class="slider-label">字号</text>
             <slider 
+              class="slider"
               min="12" 
               max="72" 
               value="{{textConfig.fontSizeNum}}" 
@@ -309,10 +411,6 @@
               bindchange="onFontSizeSliderChange"
             />
           </view>
-        </view>
-
-        <!-- 文字tab -->
-        <view class="text-tab-pane" wx:if="{{textActiveTab === 'text'}}">
           <view class="color-picker">
             <view 
               class="color-item {{textConfig.color === item ? 'color-item-active' : ''}}"
@@ -326,6 +424,7 @@
           <view class="slider-row">
             <text class="slider-label">透明度</text>
             <slider 
+              class="slider"
               min="0" 
               max="100" 
               value="{{textConfig.textOpacity}}" 
@@ -334,6 +433,7 @@
               bindchange="onTextOpacityChange"
             />
           </view>
+          </block>
         </view>
 
         <!-- 描边tab -->
@@ -351,6 +451,7 @@
           <view class="slider-row">
             <text class="slider-label">粗细</text>
             <slider 
+              class="slider"
               min="0" 
               max="50" 
               value="{{textConfig.strokeWidth}}" 
@@ -362,6 +463,7 @@
           <view class="slider-row">
             <text class="slider-label">透明度</text>
             <slider 
+              class="slider"
               min="0" 
               max="100" 
               value="{{textConfig.strokeOpacity}}" 
@@ -387,6 +489,7 @@
           <view class="slider-row">
             <text class="slider-label">模糊</text>
             <slider 
+              class="slider"
               min="0" 
               max="100" 
               value="{{textConfig.shadowBlur}}" 
@@ -398,6 +501,7 @@
           <view class="slider-row">
             <text class="slider-label">距离</text>
             <slider 
+              class="slider"
               min="0" 
               max="100" 
               value="{{textConfig.shadowDistance}}" 
@@ -409,6 +513,7 @@
           <view class="slider-row">
             <text class="slider-label">角度</text>
             <slider 
+              class="slider"
               min="0" 
               max="360" 
               value="{{textConfig.shadowAngle}}" 
@@ -420,6 +525,7 @@
           <view class="slider-row">
             <text class="slider-label">透明度</text>
             <slider 
+              class="slider"
               min="0" 
               max="100" 
               value="{{textConfig.shadowOpacity}}" 
@@ -445,6 +551,7 @@
           <view class="slider-row">
             <text class="slider-label">透明度</text>
             <slider 
+              class="slider"
               min="0" 
               max="100" 
               value="{{textConfig.bgOpacity}}" 
@@ -468,6 +575,18 @@
               {{item.label}}
             </view>
           </view>
+          <view class="slider-row">
+            <text class="slider-label">速度</text>
+            <slider 
+              class="slider"
+              min="0.5" 
+              max="2" 
+              value="{{textConfig.animationSpeed}}" 
+              step="0.1"
+              show-value="{{true}}"
+              bindchange="onAnimationSpeedChange"
+            />
+          </view>
         </view>
 
         <!-- 裁剪tab -->
@@ -490,14 +609,40 @@
   </view>
 
   <!-- GIF预览模态弹框 -->
-  <view class="gif-preview-modal {{showGifPreview ? 'gif-preview-modal-show' : ''}}" wx:if="{{showGifPreview && outPath}}" catchtap="onCloseGifPreview">
-    <view class="gif-preview-content" catchtap="">
+  <view class="gif-preview-modal {{showGifPreview ? 'gif-preview-modal-show' : ''}}" wx:if="{{showGifPreview && outPath}}" catchtap="noop" catchtouchmove="">
+    <view class="gif-preview-content" catchtap="noop">
       <view class="gif-preview-header">
         <text class="gif-preview-title">预览</text>
         <view class="gif-preview-close" bindtap="onCloseGifPreview">×</view>
       </view>
       <view class="gif-preview-body">
-        <image class="gif-preview-img" src="{{outPath}}" mode="widthFix" />
+        <view class="gif-preview-image-wrap">
+          <image class="gif-preview-img" src="{{outPath}}" mode="aspectFit" />
+        </view>
+        <view class="gif-meta-loading" wx:if="{{gifMetaLoading}}">读取参数…</view>
+        <view class="gif-meta-error" wx:if="{{!gifMetaLoading && gifMetaError}}">{{gifMetaError}}</view>
+        <view class="gif-meta-grid" wx:if="{{!gifMetaLoading && gifMeta}}">
+          <view class="gif-meta-item">
+            <text class="gif-meta-item-label">分辨率</text>
+            <text class="gif-meta-item-value">{{gifMeta.resolution}}</text>
+          </view>
+          <view class="gif-meta-item">
+            <text class="gif-meta-item-label">帧数</text>
+            <text class="gif-meta-item-value">{{gifMeta.frames}}</text>
+          </view>
+          <view class="gif-meta-item">
+            <text class="gif-meta-item-label">时长</text>
+            <text class="gif-meta-item-value">{{gifMeta.duration}}</text>
+          </view>
+          <view class="gif-meta-item">
+            <text class="gif-meta-item-label">大小</text>
+            <text class="gif-meta-item-value">{{gifMeta.size}}</text>
+          </view>
+          <view class="gif-meta-item">
+            <text class="gif-meta-item-label">FPS</text>
+            <text class="gif-meta-item-value">{{gifMeta.fps}}</text>
+          </view>
+        </view>
       </view>
       <view class="gif-preview-actions">
         <button class="btn btn-primary" bindtap="onSave">保存到相册</button>
@@ -506,8 +651,8 @@
   </view>
 
   <!-- 全屏预览模态弹框 -->
-  <view class="fullscreen-preview-modal {{showFullscreenPreview ? 'fullscreen-preview-modal-show' : ''}}" wx:if="{{showFullscreenPreview && videoPath}}" catchtap="onCloseFullscreenPreview">
-    <view class="fullscreen-preview-content" catchtap="">
+  <view class="fullscreen-preview-modal {{showFullscreenPreview ? 'fullscreen-preview-modal-show' : ''}}" wx:if="{{showFullscreenPreview && videoPath}}" catchtouchmove="">
+    <view class="fullscreen-preview-content" catchtap="noop">
       <view class="fullscreen-preview-header">
         <text class="fullscreen-preview-title">全屏预览</text>
         <view class="fullscreen-preview-close" bindtap="onCloseFullscreenPreview">×</view>
@@ -520,10 +665,14 @@
           controls="{{true}}"
           autoplay="{{false}}"
           show-center-play-btn="{{true}}"
-          show-fullscreen-btn="{{true}}"
+          show-fullscreen-btn="{{false}}"
           show-play-btn="{{true}}"
           enable-progress-gesture="{{true}}"
           object-fit="contain"
+          bindtimeupdate="onTimeUpdate"
+          bindplay="onVideoPlay"
+          bindpause="onVideoPause"
+          bindended="onVideoEnded"
         />
       </view>
     </view>
