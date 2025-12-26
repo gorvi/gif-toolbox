@@ -69,16 +69,25 @@ echo "✅ 所有软件安装完成！"
 ### 1. 上传代码
 
 ```bash
-# 创建目录
-sudo mkdir -p /opt/gif_server
-cd /opt
-
 # 使用 Git 克隆（推荐）
+cd /opt
 sudo git clone https://your-repo-url/gif-toolbox.git
-cd gif-toolbox/gif_server
 
-# 或使用 SCP 上传（在本地执行）
-# scp -r gif_server root@your-server-ip:/opt/
+# 移动到统一目录（推荐，便于后续管理）
+sudo mv gif-toolbox/gif_server /opt/gif_server
+
+# 进入项目目录
+cd /opt/gif_server
+```
+
+**或使用 SCP 上传：**
+
+```bash
+# 在本地执行（Windows PowerShell）
+scp -r gif_server root@your-server-ip:/opt/
+
+# 在服务器上
+cd /opt/gif_server
 ```
 
 ### 2. 安装依赖并编译

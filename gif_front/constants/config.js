@@ -7,28 +7,92 @@ const DEFAULT_GIF_LOOP = 0
 const DEFAULT_GIF_MAX_SIDE_PX = 720
 
 // 后端 API 地址配置
-// 开发环境：后端直接运行在本地
-// 生产环境：后端部署在服务器（Docker 或其他方式）
-
-// 判断环境：可以通过编译模式或手动设置
-// 在微信开发者工具中：编译模式 -> 自定义编译条件 -> 可以设置环境变量
-// 或者直接修改下面的值
-
 // 开发环境（本地直接运行）
 // 注意：小程序开发者工具无法访问 localhost，需要使用实际 IP 地址
-// 如果后端在本地运行，使用本机 IP（例如：192.168.71.117）
+// 如果后端在本地运行，使用本机 IP（例如：192.168.3.96）
 // 如果后端在服务器上，使用服务器 IP
-const DEV_API_BASE_URL = 'http://192.168.3.96:3000'  // 已自动设置为你的本机 IP
-// const DEV_API_BASE_URL = 'http://localhost:3000'  // 如果浏览器测试，可以用这个
+const DEV_API_BASE_URL = 'http://192.168.3.96:3000'
 
-// 生产环境（服务器部署，需要替换为实际地址）
-const PROD_API_BASE_URL = 'https://api.xxx.com'  // TODO: 替换为你的生产环境地址
+// 生产环境（服务器部署）
+const PROD_API_BASE_URL = 'https://api.gif.aiok.site'
 
-// 当前使用的环境（开发/生产切换点）
-// 开发时：使用 DEV_API_BASE_URL
-// 生产时：使用 PROD_API_BASE_URL
-const API_BASE_URL = DEV_API_BASE_URL  // 开发环境
-// const API_BASE_URL = PROD_API_BASE_URL  // 生产环境（上线前切换）
+/**
+ * 自动获取 API 地址
+ * 优先级：编译模式环境变量 > 小程序版本类型 > 默认生产环境
+ * 
+ * 使用说明：
+ * 1. 开发版（develop）：自动使用开发环境
+ * 2. 体验版（trial）：自动使用生产环境
+ * 3. 正式版（release）：自动使用生产环境
+ * 4. 编译模式：可通过编译模式设置 __ENV__ 变量强制指定环境
+ */
+function getApiBaseUrl() {
+  // 1. 优先检查编译模式环境变量（开发时手动切换）
+  // 可以通过编译模式设置全局变量 __ENV__
+  try {
+    if (typeof __ENV__ !== 'undefined') {
+      const env = String(__ENV__).toLowerCase()
+      if (env === 'dev' || env === 'development') {
+        console.log('[环境] 编译模式：开发环境', DEV_API_BASE_URL)
+        return DEV_API_BASE_URL
+      }
+      if (env === 'prod' || env === 'production') {
+        console.log('[环境] 编译模式：生产环境', PROD_API_BASE_URL)
+        return PROD_API_BASE_URL
+      }
+    }
+  } catch (e) {
+    // 忽略编译模式检查错误
+  }
+
+  // 2. 根据小程序版本类型自动判断
+  try {
+    const accountInfo = wx.getAccountInfoSync()
+    const envVersion = accountInfo.miniProgram.envVersion
+    
+    console.log('[环境] 小程序版本类型:', envVersion)
+    
+    switch (envVersion) {
+      case 'develop':  // 开发版（开发者工具）
+        console.log('[环境] 使用开发环境:', DEV_API_BASE_URL)
+        return DEV_API_BASE_URL
+      
+      case 'trial':    // 体验版
+      case 'release':  // 正式版
+        console.log('[环境] 使用生产环境:', PROD_API_BASE_URL)
+        return PROD_API_BASE_URL
+      
+      default:
+        console.warn('[环境] 未知版本类型，使用生产环境')
+        return PROD_API_BASE_URL
+    }
+  } catch (e) {
+    console.error('[环境] 获取版本信息失败，使用生产环境:', e)
+    return PROD_API_BASE_URL
+  }
+}
+
+// 自动获取 API 地址
+const API_BASE_URL = getApiBaseUrl()
+
+// 导出环境信息（方便调试）
+const ENV_INFO = (() => {
+  try {
+    const accountInfo = wx.getAccountInfoSync()
+    return {
+      envVersion: accountInfo.miniProgram.envVersion,
+      version: accountInfo.miniProgram.version,
+      apiBaseUrl: API_BASE_URL
+    }
+  } catch (e) {
+    return {
+      envVersion: 'unknown',
+      apiBaseUrl: API_BASE_URL
+    }
+  }
+})()
+
+console.log('[环境配置]', ENV_INFO)
 
 module.exports = {
   MAX_CLIP_DURATION_S,
@@ -39,4 +103,5 @@ module.exports = {
   DEFAULT_GIF_LOOP,
   DEFAULT_GIF_MAX_SIDE_PX,
   API_BASE_URL,
+  ENV_INFO,  // 导出环境信息，方便调试
 }

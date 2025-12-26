@@ -108,8 +108,15 @@ sudo make install
 # 在服务器上克隆代码
 cd /opt
 sudo git clone https://your-repo-url/gif-toolbox.git
-cd gif-toolbox/gif_server
+
+# 移动到统一目录（推荐，便于后续管理）
+sudo mv gif-toolbox/gif_server /opt/gif_server
+
+# 进入项目目录
+cd /opt/gif_server
 ```
+
+**注意：** 如果不想移动目录，也可以直接使用 `/opt/gif-toolbox/gif_server`，但后续所有 `/opt/gif_server` 路径都需要改为 `/opt/gif-toolbox/gif_server`。
 
 #### 方法 2：使用 SCP 上传
 
@@ -163,9 +170,24 @@ MAX_UPLOAD_MB=200
 
 # 业务限制
 MAX_CLIP_DURATION_S=20
-MAX_LIVE_DURATION_S=3
 
-# FFmpeg 参数
+# FFmpeg 参数（默认值，API 调用时可覆盖）
+# DEFAULT_FPS: 默认帧率（1-24），值越小文件越小但动画越不流畅
+#   - 10 fps：适合大多数场景，文件大小和流畅度平衡
+#   - 15 fps：更流畅，适合快速动作
+#   - 24 fps：最流畅，但文件最大
+# DEFAULT_WIDTH: 默认宽度（120-1280），值越大文件越大但画质越好
+#   - 480：适合小尺寸显示，文件小
+#   - 720：中等尺寸，平衡画质和文件大小
+#   - 1280：720P 高清，文件较大但画质最好
+# 
+# 720P 建议配置:
+#   DEFAULT_WIDTH=1280
+#   DEFAULT_FPS=15
+# 
+# 480P 建议配置（默认值）:
+#   DEFAULT_WIDTH=480
+#   DEFAULT_FPS=10
 DEFAULT_FPS=10
 DEFAULT_WIDTH=480
 
