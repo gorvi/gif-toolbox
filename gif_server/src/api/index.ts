@@ -130,15 +130,6 @@ const CreateVideoToGifSchema = z.object({
   cropConfig: CropConfigSchema,
 })
 
-const CreateVideoToLiveSchema = z.object({
-  inputFileId: z.string().min(1),
-  startS: z.number().min(0),
-  endS: z.number().min(0),
-  width: z.number().min(120).max(1920).optional(),
-  keepAudio: z.boolean().optional(),
-  qualityMode: z.enum(['STANDARD', 'HIGH']).optional(),
-})
-
 app.post('/v1/tasks/video-to-gif', async (req, res) => {
   const parsed = CreateVideoToGifSchema.safeParse(req.body)
   if (!parsed.success) {
@@ -198,53 +189,6 @@ app.post('/v1/tasks/video-to-gif', async (req, res) => {
   res.json({ code: 0, msg: 'ok', data: { taskId, status: TASK_STATUS.QUEUED } })
 })
 
-app.post('/v1/tasks/video-to-live', async (req, res) => {
-  const parsed = CreateVideoToLiveSchema.safeParse(req.body)
-  if (!parsed.success) {
-    return res.status(400).json({ code: 400, msg: '参数不合法', data: parsed.error.flatten() })
-  }
-
-  const { inputFileId, startS, endS } = parsed.data
-  const duration = endS - startS
-  if (duration <= 0) return res.status(400).json({ code: 400, msg: '截取范围不合法' })
-  if (duration > CONFIG.MAX_LIVE_DURATION_S) {
-    return res.status(400).json({ code: 400, msg: `最多截取${CONFIG.MAX_LIVE_DURATION_S}秒` })
-  }
-
-  const file = await get<FileRow>(db, `SELECT * FROM files WHERE id = ?`, [inputFileId])
-  if (!file) return res.status(404).json({ code: 404, msg: '找不到输入文件' })
-
-  const taskId = nanoid()
-  const now = Date.now()
-  const params: Record<string, any> = {
-    startS,
-    endS,
-    width: parsed.data.width ?? 720,
-    keepAudio: parsed.data.keepAudio ?? true,
-    qualityMode: parsed.data.qualityMode ?? 'HIGH',
-  }
-
-  await run(
-    db,
-    `INSERT INTO tasks (id, type, status, input_file_id, output_file_id, params_json, progress, error_message, created_at_ms, updated_at_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      taskId,
-      TASK_TYPE.VIDEO_TO_LIVE,
-      TASK_STATUS.QUEUED,
-      inputFileId,
-      null,
-      JSON.stringify(params),
-      0,
-      null,
-      now,
-      now,
-    ],
-  )
-
-  res.json({ code: 0, msg: 'ok', data: { taskId, status: TASK_STATUS.QUEUED } })
-})
-
 app.get('/v1/tasks/:taskId', async (req, res) => {
   const taskId = req.params.taskId
   const task = await get<TaskRow>(db, `SELECT * FROM tasks WHERE id = ?`, [taskId])
@@ -252,28 +196,7 @@ app.get('/v1/tasks/:taskId', async (req, res) => {
 
   let result: any = null
   if (task.status === TASK_STATUS.SUCCESS && task.output_file_id) {
-    if (task.type === TASK_TYPE.VIDEO_TO_LIVE) {
-      // Live Photo 返回两个文件：图片和视频
-      const outputFile = await get<FileRow>(db, `SELECT * FROM files WHERE id = ?`, [task.output_file_id])
-      if (outputFile) {
-        // 查找对应的图片文件（文件名相同但扩展名不同）
-        const baseName = outputFile.original_name.replace(/\.(mp4|mov)$/i, '')
-        const imageFile = await all<FileRow>(
-          db,
-          `SELECT * FROM files WHERE original_name LIKE ? AND kind = 'output' AND id != ? ORDER BY created_at_ms DESC LIMIT 1`,
-          [`${baseName}.jpg`, task.output_file_id]
-        )
-        const image = imageFile[0] || null
-        result = {
-          videoFileId: task.output_file_id,
-          videoDownloadUrl: `/v1/files/${task.output_file_id}`,
-          imageFileId: image?.id || null,
-          imageDownloadUrl: image ? `/v1/files/${image.id}` : null,
-        }
-      }
-    } else {
-      result = { fileId: task.output_file_id, downloadUrl: `/v1/files/${task.output_file_id}` }
-    }
+    result = { fileId: task.output_file_id, downloadUrl: `/v1/files/${task.output_file_id}` }
   }
 
   res.json({

@@ -23,9 +23,7 @@ export const CONFIG = {
   RETENTION_HOURS: toInt(process.env.RETENTION_HOURS, 168),
   MAX_UPLOAD_MB: toInt(process.env.MAX_UPLOAD_MB, 200),
   MAX_CLIP_DURATION_S: toInt(process.env.MAX_CLIP_DURATION_S, 10),
-  MAX_LIVE_DURATION_S: toInt(process.env.MAX_LIVE_DURATION_S, 3),
   DEFAULT_FPS: toInt(process.env.DEFAULT_FPS, 10),
   DEFAULT_WIDTH: toInt(process.env.DEFAULT_WIDTH, 480),
   FFMPEG_PATH: process.env.FFMPEG_PATH || 'ffmpeg', // FFmpeg 可执行文件路径，默认使用系统 PATH
-  EXIFTOOL_PATH: process.env.EXIFTOOL_PATH || 'exiftool', // ExifTool 可执行文件路径，用于 Live Photo 元数据
 } as const

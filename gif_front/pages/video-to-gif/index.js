@@ -407,7 +407,7 @@ Page({
 
   async onChooseVideo() {
     wx.showActionSheet({
-      itemList: ['从相册选择', '聊天视频', '拍摄'],
+      itemList: ['从相册选择（MP4/MOV）', '聊天视频（MP4/MOV）', '拍摄（MP4）'],
       success: async (res) => {
         const tapIndex = Number(res && res.tapIndex)
         try {

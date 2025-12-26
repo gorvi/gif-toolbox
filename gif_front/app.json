@@ -2,7 +2,6 @@
   "pages": [
     "pages/index/index",
     "pages/video-to-gif/index",
-    "pages/video-to-live/index",
     "pages/images-to-gif/index",
     "pages/gif-compress/index",
     "pages/gif-add-text/index",

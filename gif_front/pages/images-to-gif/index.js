@@ -75,6 +75,42 @@ function chooseImagesFromChat(count) {
   })
 }
 
+function isGifPath(p) {
+  const s = String(p || '').toLowerCase()
+  return s.endsWith('.gif') || s.includes('.gif?')
+}
+
+function getImageTypeByPath(path) {
+  return new Promise((resolve) => {
+    wx.getImageInfo({
+      src: path,
+      success: (info) => resolve(String((info && info.type) || '')),
+      fail: () => resolve(''),
+    })
+  })
+}
+
+async function filterOutGifFiles(files) {
+  const input = Array.isArray(files) ? files : []
+  const kept = []
+  let removedGifCount = 0
+  for (const f of input) {
+    const path = String(f && f.path)
+    if (!path) continue
+    if (isGifPath(path)) {
+      removedGifCount++
+      continue
+    }
+    const t = await getImageTypeByPath(path)
+    if (String(t).toLowerCase() === 'gif') {
+      removedGifCount++
+      continue
+    }
+    kept.push(f)
+  }
+  return { files: kept, removedGifCount }
+}
+
 function isCancelError(e) {
   const msg = String((e && (e.errMsg || e.message)) || '')
   return msg.includes('cancel') || msg.includes('fail cancel')
@@ -171,13 +207,21 @@ Page({
     }
 
     wx.showActionSheet({
-      itemList: ['相册选择', '聊天图片'],
+      itemList: ['相册选择（静态图）', '聊天图片（静态图）'],
       success: async (res) => {
         const tapIndex = Number(res && res.tapIndex)
         try {
           const pickCount = Math.min(20, remain)
-          const files = tapIndex === 1 ? await chooseImagesFromChat(pickCount) : await chooseImages(pickCount)
-          if (!files.length) return
+          const chosen = tapIndex === 1 ? await chooseImagesFromChat(pickCount) : await chooseImages(pickCount)
+          const filtered = await filterOutGifFiles(chosen)
+          const files = filtered.files
+          if (filtered.removedGifCount > 0) {
+            wx.showToast({ title: `已过滤${filtered.removedGifCount}张GIF`, icon: 'none' })
+          }
+          if (!files.length) {
+            wx.showToast({ title: 'GIF 暂不支持，请选择静态图片', icon: 'none' })
+            return
+          }
           this.setData(
             {
               images: this.data.images.concat(files).slice(0, MAX_IMAGE_COUNT),
@@ -216,9 +260,14 @@ Page({
     }
 
     try {
-      const files = await chooseImages(Math.min(20, remain))
+      const chosen = await chooseImages(Math.min(20, remain))
+      const filtered = await filterOutGifFiles(chosen)
+      const files = filtered.files
+      if (filtered.removedGifCount > 0) {
+        wx.showToast({ title: `已过滤${filtered.removedGifCount}张GIF`, icon: 'none' })
+      }
       if (!files.length) {
-        wx.showToast({ title: '未选择图片', icon: 'none' })
+        wx.showToast({ title: 'GIF 暂不支持，请选择静态图片', icon: 'none' })
         return
       }
       this.setData(
@@ -1191,7 +1240,7 @@ Page({
         if (!w0 || !h0) return
 
         const maxDim0 = Math.max(w0, h0)
-        const baseLongEdge = Math.min(maxSidePx, maxDim0)
+        const baseLongEdge = maxSidePx
         const aspect = (ASPECT_OPTIONS[this.data.aspectIndex] && ASPECT_OPTIONS[this.data.aspectIndex].value) || 0
 
         let outW = 0
@@ -1210,8 +1259,7 @@ Page({
           outH = Math.max(1, Math.round(h0 * scale))
         }
 
-        const note = maxDim0 <= maxSidePx ? '（原图较小不放大）' : ''
-        const exportSizeText = `实际输出约：${outW}×${outH}px${note}`
+        const exportSizeText = `实际输出约：${outW}×${outH}px`
         if (exportSizeText !== this.data.exportSizeText) {
           this.setData({ exportSizeText })
         }

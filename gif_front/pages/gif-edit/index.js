@@ -564,7 +564,7 @@ Page({
   onChooseSource() {
     if (this.data.processing) return
     wx.showActionSheet({
-      itemList: ['相册选择', '聊天图片', '聊天文件'],
+      itemList: ['相册选择（GIF）', '聊天图片（GIF）', '聊天文件（GIF）'],
       success: async (res) => {
         const tapIndex = Number(res && res.tapIndex)
         try {

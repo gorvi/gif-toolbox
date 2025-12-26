@@ -11,7 +11,7 @@ Page({
       {
         key: 'VIDEO_TO_GIF',
         title: '视频转GIF',
-        desc: '将视频制作成动态GIF动图，简单好用',
+        desc: '支持 MP4/MOV 等视频；最长截取10秒',
         pill: '热门',
         icon: '▣',
         btnLabel: '视频转GIF',
@@ -26,7 +26,7 @@ Page({
       {
         key: 'IMAGES_TO_GIF',
         title: '图片转GIF',
-        desc: '多图合成GIF，可设帧时长与顺序',
+        desc: '支持 JPG/PNG/WebP/HEIC 等静态图；不支持 GIF',
         pill: '常用',
         icon: '▦',
         btnLabel: '图片转GIF',
@@ -41,7 +41,7 @@ Page({
       {
         key: 'GIF_EDIT',
         title: 'GIF编辑',
-        desc: '裁剪/删帧/加字/压缩，一页完成',
+        desc: '仅支持 GIF；相册可能转静态，建议聊天图片/文件',
         pill: '必备',
         icon: '✦',
         btnLabel: '打开编辑',
