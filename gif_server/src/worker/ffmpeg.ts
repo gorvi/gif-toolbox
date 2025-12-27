@@ -196,7 +196,22 @@ function buildDrawtextFilter(textConfig: TextConfig, videoWidth: number, duratio
   
   // 获取中文字体
   const fontPath = getChineseFontPath()
-  const fontFile = fontPath ? `:fontfile='${fontPath.replace(/\\/g, '/').replace(/:/g, '\\:')}'` : ''
+  // FFmpeg drawtext 字体路径转义：
+  // 1. 将反斜杠转换为正斜杠（FFmpeg 支持）
+  // 2. 转义单引号（路径中可能包含单引号）
+  // 3. 转义冒号（Windows 路径中的 C:）
+  // 4. 用单引号包裹整个路径
+  let fontFile = ''
+  if (fontPath) {
+    const escapedPath = fontPath
+      .replace(/\\/g, '/')           // 反斜杠转正斜杠
+      .replace(/'/g, "\\'")          // 转义单引号
+      .replace(/:/g, '\\:')           // 转义冒号
+    fontFile = `:fontfile='${escapedPath}'`
+    console.log('[FFmpeg] 使用中文字体:', fontPath)
+  } else {
+    console.warn('[FFmpeg] 警告：未找到中文字体，中文可能显示为乱码')
+  }
   
   const filters: string[] = []
   

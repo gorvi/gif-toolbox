@@ -1,0 +1,11 @@
+{
+	"ios": {
+		"name": "GIF制作工具"
+	},
+	"android": {
+		"name": "GIF制作工具"
+	},
+	"common": {
+		"name": "GIF制作工具"
+	}
+}
