@@ -15,7 +15,7 @@
         <view class="banner-content">
           <view class="banner-top">
             <view class="banner-title">{{card.title}}</view>
-            <view class="banner-pill glass">{{card.pill}}<text class="banner-pill-arrow">›</text></view>
+            <view class="banner-pill glass">{{card.pill}}</view>
           </view>
           <view class="banner-desc">{{card.desc}}</view>
           <view class="banner-actions">

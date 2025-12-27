@@ -40,6 +40,7 @@
         <view
           class="video-container"
           id="mainVideoContainer"
+          bindtap="onPreviewTap"
           bindtouchstart="onTextGestureStart"
           bindtouchmove="onTextGestureMove"
           bindtouchend="onTextGestureEnd"
@@ -86,18 +87,21 @@
           <!-- 文字预览/编辑（直接在首页） -->
           <view 
             class="video-text-preview {{textActiveTab && textActiveTab !== 'none' ? 'video-text-editing' : ''}} {{textActiveTab === 'crop' ? 'video-text-disabled' : ''}}"
-            wx:if="{{(textConfig.content && textActiveTab && textActiveTab !== 'none') || (textPreviewConfig && textPreviewConfig.content)}}"
-            style="left: {{textActiveTab && textActiveTab !== 'none' && textConfig.content ? textConfig.x : (textPreviewConfig ? textPreviewConfig.x : 50)}}%; top: {{textActiveTab && textActiveTab !== 'none' && textConfig.content ? textConfig.y : (textPreviewConfig ? textPreviewConfig.y : 50)}}%;"
+            wx:if="{{(textConfig && textConfig.content) || (textPreviewConfig && textPreviewConfig.content)}}"
+            catchtap="onTextTap"
+            catchlongpress="onTextLongPress"
+            style="left: {{textConfig && textConfig.content && (textSelected || (textActiveTab && textActiveTab !== 'none')) ? textConfig.x : (textPreviewConfig ? textPreviewConfig.x : 50)}}%; top: {{textConfig && textConfig.content && (textSelected || (textActiveTab && textActiveTab !== 'none')) ? textConfig.y : (textPreviewConfig ? textPreviewConfig.y : 50)}}%;"
           >
             <view 
               class="text-drag-box {{textDragging ? 'text-dragging' : ''}}"
-              wx:if="{{textConfig.content && textActiveTab && textActiveTab !== 'none'}}"
+              wx:if="{{textConfig && textConfig.content && ((textSelected || (textActiveTab && textActiveTab !== 'none')) && textActiveTab !== 'crop')}}"
               bindtouchstart="onTextDragStart"
               bindtouchmove="onTextDragMove"
               bindtouchend="onTextDragEnd"
               bindtouchcancel="onTextDragEnd"
             >
               <view class="text-content-wrap" style="{{textConfig._bgStyle || ''}}">
+                <view class="text-edit-outline"></view>
                 <text 
                   class="text-content {{textConfig.animation ? 'text-animation-' + textConfig.animation : ''}}"
                   style="color: {{textConfig.color}}; opacity: {{(100 - textConfig.textOpacity) / 100}}; font-size: {{textConfig.fontSizeNum}}px; -webkit-text-stroke: {{textConfig.strokeColor ? (textConfig.strokeWidth / 50) + 'px ' + textConfig.strokeColor : 'none'}}; text-shadow: {{textConfig._shadowStyle || 'none'}}; {{textConfig._animStyle || ''}}"
@@ -327,7 +331,7 @@
   </view>
 
   <!-- 底部导航栏（类似剪映） -->
-  <view class="bottom-nav-bar safe-area {{textActiveTab && textActiveTab !== 'none' ? 'bottom-nav-bar-hidden' : ''}}">
+  <view class="bottom-nav-bar safe-area {{keyboardHeightPx > 0 ? 'bottom-nav-bar-hidden' : ''}}">
     <view class="bottom-nav-item" bindtap="onClickCropTool">
       <view class="bottom-nav-icon">✂</view>
       <text class="bottom-nav-label">剪辑</text>
@@ -339,9 +343,9 @@
   </view>
 
   <!-- 抽屉式编辑组件（类似剪映） -->
-  <view class="edit-drawer-mask {{textActiveTab && textActiveTab !== 'none' ? 'edit-drawer-mask-show' : ''}}" wx:if="{{textActiveTab && textActiveTab !== 'none'}}" catchtap="onDrawerMaskTap"></view>
-  <view class="edit-drawer {{textActiveTab && textActiveTab !== 'none' ? 'edit-drawer-show' : ''}} {{keyboardHeightPx <= 0 ? 'edit-drawer-fill' : ''}}" wx:if="{{textActiveTab && textActiveTab !== 'none'}}" style="{{keyboardHeightPx > 0 ? ('height: ' + drawerHeightVh + 'vh; bottom: ' + keyboardHeightPx + 'px;') : ('top: ' + drawerTopPx + 'px; bottom: 0; height: auto;')}}">
-    <view class="drawer-close-fab" bindtap="onCloseEditComponent">完成</view>
+  <view class="edit-drawer-mask {{textActiveTab && textActiveTab !== 'none' ? 'edit-drawer-mask-show' : ''}}" wx:if="{{textActiveTab && textActiveTab !== 'none'}}" catchtap="onDrawerMaskTap" style="{{keyboardHeightPx <= 0 ? 'bottom: calc(120rpx + env(safe-area-inset-bottom));' : ''}}"></view>
+  <view class="edit-drawer {{textActiveTab && textActiveTab !== 'none' ? 'edit-drawer-show' : ''}} {{keyboardHeightPx <= 0 ? 'edit-drawer-fill' : ''}} {{textActiveTab === 'crop' ? 'edit-drawer-crop' : ''}}" wx:if="{{textActiveTab && textActiveTab !== 'none'}}" style="{{keyboardHeightPx > 0 ? ('height: ' + drawerHeightVh + 'vh; bottom: ' + keyboardHeightPx + 'px;') : ('top: ' + drawerTopPx + 'px; bottom: calc(120rpx + env(safe-area-inset-bottom)); height: auto;')}}">
+    <view class="drawer-close-fab" bindtap="onCloseEditComponent">确认</view>
     
     <!-- 文字编辑组件 -->
     <view class="edit-component">

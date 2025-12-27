@@ -244,9 +244,9 @@ app.get('/v1/files/:fileId', async (req, res) => {
   const fileSize = stats.size
 
   // 设置响应头
-  res.setHeader('Content-Type', 'image/gif')
+  res.setHeader('Content-Type', file.mime_type || 'application/octet-stream')
   res.setHeader('Content-Length', fileSize)
-  res.setHeader('Content-Disposition', `inline; filename="${file.original_name || 'output.gif'}"`)
+  res.setHeader('Content-Disposition', `inline; filename="${file.original_name || 'output'}"`)
   res.setHeader('Cache-Control', 'public, max-age=3600')
 
   // 使用流式传输，避免大文件占用过多内存

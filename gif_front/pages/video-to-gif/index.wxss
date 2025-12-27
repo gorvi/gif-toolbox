@@ -424,11 +424,15 @@
 
 .crop-preview-box {
   position: absolute;
-  border: 2rpx solid #20c05c;
+  border: 2rpx solid rgba(255, 255, 255, 0.75);
   z-index: 6;
   /* 裁剪框内部是透明的，显示视频内容 */
   box-sizing: border-box;
   pointer-events: auto;
+}
+
+.crop-preview-overlay.crop-editing .crop-preview-box {
+  border-color: #20c05c;
 }
 
 .crop-preview-label {
@@ -1926,6 +1930,15 @@
   max-height: none;
 }
 
+.edit-drawer-crop {
+  max-height: 34vh;
+}
+
+.edit-drawer-crop .edit-component,
+.edit-drawer-crop .text-edit-content {
+  flex: 0 0 auto;
+}
+
 /* 抽屉顶部按钮 */
 .drawer-close-fab {
   position: absolute;
@@ -2145,6 +2158,19 @@
 
 .text-content-wrap {
   display: inline-block;
+  position: relative;
+}
+
+.text-edit-outline {
+  position: absolute;
+  top: -6rpx;
+  left: -6rpx;
+  right: -6rpx;
+  bottom: -6rpx;
+  border: 2rpx dashed #20c05c;
+  border-radius: 12rpx;
+  pointer-events: none;
+  box-sizing: border-box;
 }
 
 .text-delete-btn {

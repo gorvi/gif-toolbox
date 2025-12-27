@@ -23,8 +23,8 @@ ensureDir(path.join(CONFIG.DATA_DIR, 'tmp'))
 async function claimOneQueuedTask(): Promise<TaskRow | null> {
   const row = await get<TaskRow>(
     db,
-    `SELECT * FROM tasks WHERE status = ? AND type = ? ORDER BY created_at_ms ASC LIMIT 1`,
-    [TASK_STATUS.QUEUED, TASK_TYPE.VIDEO_TO_GIF],
+    `SELECT * FROM tasks WHERE status = ? ORDER BY created_at_ms ASC LIMIT 1`,
+    [TASK_STATUS.QUEUED],
   )
   if (!row) return null
 
@@ -158,7 +158,11 @@ async function mainLoop() {
       continue
     }
     try {
-      await processVideoToGif(task)
+      if (task.type === TASK_TYPE.VIDEO_TO_GIF) {
+        await processVideoToGif(task)
+      } else {
+        throw new Error(`不支持的任务类型: ${task.type}`)
+      }
     } catch (e: any) {
       await setTaskFailed(task.id, e?.message || '转码失败')
     }

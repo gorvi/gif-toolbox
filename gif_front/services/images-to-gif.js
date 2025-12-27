@@ -182,7 +182,7 @@ async function convertImagesToGif(options) {
   if (!w0 || !h0) throw new Error('读取图片信息失败')
 
   const maxDim0 = Math.max(w0, h0)
-  const baseLongEdge = Math.min(maxSidePx, maxDim0)
+  const baseLongEdge = maxSidePx
 
   let outW = 0
   let outH = 0

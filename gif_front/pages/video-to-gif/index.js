@@ -168,6 +168,7 @@ Page({
     textActiveTab: 'none',  // 'none'表示不显示编辑组件，其他值表示显示对应tab
     textInputFocus: false,
     textDragging: false,
+    textSelected: false,
     colorOptions: [
       '#FFFFFF',
       '#000000',
@@ -406,7 +407,7 @@ Page({
 
   async onChooseVideo() {
     wx.showActionSheet({
-      itemList: ['从相册选择', '聊天视频', '拍摄'],
+      itemList: ['从相册选择（MP4/MOV）', '聊天视频（MP4/MOV）', '拍摄（MP4）'],
       success: async (res) => {
         const tapIndex = Number(res && res.tapIndex)
         try {
@@ -627,6 +628,7 @@ Page({
     const { shadowX, shadowY } = this._textEditor.calcShadowOffset(shadowDistance, shadowAngle)
     this.setData({ 
       textActiveTab: newTab,
+      textSelected: true,
       textInputFocus: newTab === 'keyboard',
       'textConfig.shadowX': shadowX,
       'textConfig.shadowY': shadowY,
@@ -643,10 +645,12 @@ Page({
   // 关闭编辑组件（点击其他功能或空白区域时调用）
   onCloseEditComponent(eOrCb) {
     const cb = typeof eOrCb === 'function' ? eOrCb : null
+    const keepSelected = !!(this.data.textConfig && this.data.textConfig.content)
     this.setData({ 
       textActiveTab: 'none',
       textInputFocus: false,
       textDragging: false,
+      textSelected: keepSelected,
     }, () => {
       if (typeof cb === 'function') cb()
     })
@@ -662,7 +666,49 @@ Page({
     }, 200)
   },
 
-  onDrawerMaskTap() {},
+  onDrawerMaskTap() {
+    this.onCloseEditComponent()
+  },
+
+  _isDoubleTap(e, key) {
+    const touch = (e && e.changedTouches && e.changedTouches[0]) || (e && e.touches && e.touches[0]) || null
+    const now = Date.now()
+    const x = touch ? Number(touch.clientX || 0) : 0
+    const y = touch ? Number(touch.clientY || 0) : 0
+    if (!this._lastTap) this._lastTap = {}
+    const last = this._lastTap[key] || null
+    this._lastTap[key] = { t: now, x, y }
+    if (!last) return false
+    const dt = now - last.t
+    if (dt <= 0 || dt > 260) return false
+    const dx = x - last.x
+    const dy = y - last.y
+    return (dx * dx + dy * dy) <= (18 * 18)
+  },
+
+  onTextTap(e) {
+    if (this.data.textActiveTab === 'crop') return
+    if (!this.data.textConfig || !this.data.textConfig.content) return
+    if (this._isDoubleTap(e, 'text')) {
+      this.setData({ textSelected: true })
+    }
+  },
+
+  onTextLongPress() {
+    if (this.data.textActiveTab === 'crop') return
+    if (!this.data.textConfig || !this.data.textConfig.content) return
+    this.setData({ textSelected: true })
+  },
+
+  onPreviewTap() {
+    if (this.data.textActiveTab && this.data.textActiveTab !== 'none') {
+      this.onCloseEditComponent()
+      return
+    }
+    if (this.data.textSelected) {
+      this.setData({ textSelected: false })
+    }
+  },
 
   onTextInputFocus(e) {
     const keyboardHeight = Math.max(0, Number((e && e.detail && e.detail.height) || 0))
@@ -689,7 +735,8 @@ Page({
     const tab = e.currentTarget.dataset.tab
     this.setData({ 
       textActiveTab: tab,
-      textInputFocus: tab === 'keyboard'
+      textInputFocus: tab === 'keyboard',
+      textSelected: tab === 'crop' ? false : this.data.textSelected,
     })
   },
   
@@ -739,6 +786,9 @@ Page({
 
   // 文字拖拽相关
   onTextDragStart(e) {
+    if (this.data.textActiveTab === 'crop') return
+    if (this.data.textActiveTab === 'none' && !this.data.textSelected) return
+
     const targetRole = e && e.target && e.target.dataset && e.target.dataset.role
     if (targetRole === 'delete') return
 
@@ -849,7 +899,8 @@ Page({
   onTextGestureStart(e) {
     const touches = e && e.touches
     if (!touches || touches.length < 2) return
-    if (this.data.textActiveTab === 'none' || this.data.textActiveTab === 'crop') return
+    if (this.data.textActiveTab === 'crop') return
+    if (this.data.textActiveTab === 'none' && !this.data.textSelected) return
     if (!this.data.textConfig || !this.data.textConfig.content) return
     if (this._pinch && this._pinch.active) return
 
@@ -892,6 +943,7 @@ Page({
       textActiveTab: 'none',
       textInputFocus: false,
       textDragging: false,
+      textSelected: false,
     }, () => {
       this.updateTextPreviewConfig()
     })
@@ -1156,8 +1208,14 @@ Page({
     }
     // 切换到裁剪tab（首页直接编辑）
     const newTab = this.data.textActiveTab === 'crop' ? 'none' : 'crop'
-    this.setData({ textActiveTab: newTab }, () => {
-      if (newTab === 'crop') this.updateCropPreviewConfig()
+    this.setData({ textActiveTab: newTab, textSelected: false }, () => {
+      if (newTab === 'crop') {
+        if (this.data.cropConfig && this.data.cropConfig.aspectRatio === 'none') {
+          this.onCropAspectRatioChange({ currentTarget: { dataset: { ratio: '1:1' } } })
+          return
+        }
+        this.updateCropPreviewConfig()
+      }
     })
     if (newTab === 'crop') {
       setTimeout(() => this.updateMainVideoRect(), 300)
@@ -1299,7 +1357,7 @@ Page({
       containerWidth: this._mainVideoContainerRect.width,
       containerHeight: this._mainVideoContainerRect.height,
     }
-    this.setData({ cropDragging: true, cropDragType: type })
+    this.setData({ cropDragging: true, cropDragType: type, cropSelected: true, textSelected: false })
   },
 
   // 裁剪框拖动中（节流优化）

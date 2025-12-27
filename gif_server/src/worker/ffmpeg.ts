@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
+import { CONFIG } from '../common/config.js'
 
 export type TextConfig = {
   content: string
@@ -45,12 +46,21 @@ export type VideoToGifOptions = {
 
 function run(cmd: string, args: string[]): Promise<{ code: number; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'] })
+    // 如果命令是 ffmpeg，使用配置的路径
+    const actualCmd = cmd === 'ffmpeg' ? CONFIG.FFMPEG_PATH : cmd
+    const p = spawn(actualCmd, args, { stdio: ['ignore', 'ignore', 'pipe'] })
     let stderr = ''
     p.stderr.on('data', (d) => {
       stderr += d.toString()
     })
-    p.on('error', reject)
+    p.on('error', (err) => {
+      // 提供更友好的错误信息
+      if (err.message && err.message.includes('ENOENT')) {
+        reject(new Error(`找不到 FFmpeg 可执行文件。请确保 FFmpeg 已安装并在 PATH 中，或设置环境变量 FFMPEG_PATH 指向 FFmpeg 的完整路径。当前配置: ${CONFIG.FFMPEG_PATH}`))
+      } else {
+        reject(err)
+      }
+    })
     p.on('close', (code) => resolve({ code: code ?? 0, stderr }))
   })
 }
@@ -186,7 +196,22 @@ function buildDrawtextFilter(textConfig: TextConfig, videoWidth: number, duratio
   
   // 获取中文字体
   const fontPath = getChineseFontPath()
-  const fontFile = fontPath ? `:fontfile='${fontPath.replace(/\\/g, '/').replace(/:/g, '\\:')}'` : ''
+  // FFmpeg drawtext 字体路径转义：
+  // 1. 将反斜杠转换为正斜杠（FFmpeg 支持）
+  // 2. 转义单引号（路径中可能包含单引号）
+  // 3. 转义冒号（Windows 路径中的 C:）
+  // 4. 用单引号包裹整个路径
+  let fontFile = ''
+  if (fontPath) {
+    const escapedPath = fontPath
+      .replace(/\\/g, '/')           // 反斜杠转正斜杠
+      .replace(/'/g, "\\'")          // 转义单引号
+      .replace(/:/g, '\\:')           // 转义冒号
+    fontFile = `:fontfile='${escapedPath}'`
+    console.log('[FFmpeg] 使用中文字体:', fontPath)
+  } else {
+    console.warn('[FFmpeg] 警告：未找到中文字体，中文可能显示为乱码')
+  }
   
   const filters: string[] = []
   
